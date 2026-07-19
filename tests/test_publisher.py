@@ -110,13 +110,11 @@ class TestPublisher(unittest.TestCase):
         conn.cursor.return_value = cursor
         cursor.fetchall.return_value = [
             {'activity_type': 'run', 'workouts': 3},
-            {'activity_type': 'walk', 'workouts': 2},
         ]
 
         result = self.publisher._get_apple_health_activity_breakdown('2023-01')
         self.assertEqual(result, [
             {'activity_type': 'run', 'workouts': 3},
-            {'activity_type': 'walk', 'workouts': 2},
         ])
 
     def test_get_blog_analysis_exists_success(self):

@@ -484,6 +484,7 @@ class Publisher:
         SELECT activity_type, COUNT(*) AS workouts
         FROM workouts
         WHERE strftime('%Y-%m', started_at) = ?
+        AND activity_type != 'walk'
         GROUP BY activity_type
         ORDER BY workouts DESC, activity_type ASC
         """

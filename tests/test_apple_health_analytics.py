@@ -68,7 +68,7 @@ def test_analyze_workouts_groups_by_month_and_sums_duration_seconds_and_calories
         rows = [dict(row) for row in cursor.fetchall()]
 
     assert rows == [
-        {"year_month": "2026-04", "workouts": 2, "total_duration_seconds": 3000, "total_calories": 320.0},
+        {"year_month": "2026-04", "workouts": 1, "total_duration_seconds": 1800, "total_calories": 320.0},
         {"year_month": "2026-05", "workouts": 1, "total_duration_seconds": 2700, "total_calories": 450.0},
     ]
 

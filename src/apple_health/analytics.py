@@ -51,6 +51,7 @@ class AppleHealthAnalytics:
                     ROUND(COALESCE(SUM(total_calories), 0), 2) AS total_calories
                 FROM workouts
                 WHERE started_at IS NOT NULL
+                AND activity_type != 'walk'
                 GROUP BY year, month
                 """
             )

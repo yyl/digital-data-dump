@@ -319,7 +319,6 @@ class TestMarkdownGenerator(unittest.TestCase):
             },
             "activity_breakdown": [
                 {"activity_type": "run", "workouts": 3},
-                {"activity_type": "walk", "workouts": 2},
             ],
         })
 
@@ -329,7 +328,6 @@ class TestMarkdownGenerator(unittest.TestCase):
         self.assertIn("- **Total Calories**: 1,432 kcal (-5% MoM, +20% YoY)", result)
         self.assertIn("| Activity Type | Workouts |", result)
         self.assertIn("| run | 3 |", result)
-        self.assertIn("| walk | 2 |", result)
 
     def test_generate_blog_section_includes_top_tags(self):
         result = self.generator._generate_blog_section({
