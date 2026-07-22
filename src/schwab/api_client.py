@@ -186,10 +186,23 @@ class SchwabAPIClient:
         token_data = response.json()
         access_token = token_data.get("access_token")
         if not access_token:
+            print(f"Schwab token refresh: no access_token in response. Keys: {sorted(token_data.keys())}")
             return False
 
+        new_refresh = token_data.get("refresh_token")
+        old_suffix = self.refresh_token[-8:] if self.refresh_token else "(none)"
+        new_suffix = new_refresh[-8:] if new_refresh else "(none)"
+        token_changed = new_refresh and new_refresh != self.refresh_token
+
+        print(f"Schwab token refresh succeeded:")
+        print(f"  Response keys: {sorted(token_data.keys())}")
+        print(f"  New refresh token returned: {bool(new_refresh)}")
+        print(f"  Refresh token changed: {token_changed}")
+        print(f"  Old refresh suffix: ...{old_suffix}")
+        print(f"  New refresh suffix: ...{new_suffix}")
+
         self.access_token = access_token
-        self.refresh_token = token_data.get("refresh_token") or self.refresh_token
+        self.refresh_token = new_refresh or self.refresh_token
         self._save_tokens_to_env(self.access_token, self.refresh_token)
         return True
 
