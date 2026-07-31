@@ -56,14 +56,20 @@ class SchwabAPIClient:
         return not self.access_token
 
     def ensure_auth(self) -> bool:
-        """Ensure an access token exists, refreshing or running OAuth when needed."""
-        if self.access_token:
-            return True
+        """Ensure a valid access token, proactively refreshing before use.
 
+        Access tokens expire after ~30 minutes, so on any scheduled run
+        the stored token is always stale. Always refresh upfront when a
+        refresh token is available.
+        """
         if self.refresh_token:
             if self.refresh_access_token():
                 return True
             print("Schwab token refresh failed; starting OAuth flow.")
+            return self.run_oauth_flow() is not None
+
+        if self.access_token:
+            return True
 
         return self.run_oauth_flow() is not None
 
@@ -165,6 +171,9 @@ class SchwabAPIClient:
         if not self.refresh_token or not self.client_id or not self.client_secret:
             return False
 
+        old_suffix = self.refresh_token[-8:] if self.refresh_token else "(none)"
+        print(f"Schwab token refresh: attempting with refresh suffix ...{old_suffix}")
+
         try:
             response = self.session.post(
                 self.TOKEN_URL,
@@ -178,9 +187,17 @@ class SchwabAPIClient:
                 },
                 timeout=30,
             )
-            response.raise_for_status()
         except requests.exceptions.RequestException as e:
-            print(f"Error refreshing Schwab token: {e}")
+            print(f"Error refreshing Schwab token (network): {e}")
+            return False
+
+        if not response.ok:
+            print(f"Schwab token refresh failed:")
+            print(f"  Status: {response.status_code}")
+            try:
+                print(f"  Response: {response.json()}")
+            except Exception:
+                print(f"  Response text: {response.text[:500]}")
             return False
 
         token_data = response.json()
