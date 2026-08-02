@@ -149,6 +149,17 @@ Published workout metrics come from Apple Health monthly analysis. Strong is sti
 - Analysis computes article counts, total words, reading time, and article-length stats
 - Reading speed comparison in the published report is derived rather than stored directly in the analysis table
 
+#### Source Resolution
+
+The published report groups articles by source name. Readwise populates `site_name` for web articles, but forwarded-email newsletters (e.g. Money Stuff, Benedict's Newsletter) arrive with `site_name = NULL`. Rather than maintaining a hardcoded mapping, the publisher resolves source names with a fallback chain:
+
+1. **`site_name`** — use the Readwise-provided value when present
+2. **Title prefix** — the substring before the first `:` in the title. Newsletter emails almost always follow a `Name: Subject` pattern (e.g. `Money Stuff: SpaceX Crash Insurance` → `Money Stuff`)
+3. **`author`** — the raw author string as a last resort (works for clean names like `Emma Goto`)
+4. **`None`** — falls through to the "Other" bucket
+
+This is zero-maintenance: any new forwarded newsletter with a `Name: Subject` title pattern is automatically recognized without code changes.
+
 ### Foursquare
 
 - Uses the Foursquare v2 API for core checkin/user data

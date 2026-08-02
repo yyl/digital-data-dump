@@ -299,6 +299,34 @@ class Publisher:
                 result['avg_readiness_score'] = round(row['avg_value'], 2) if row['avg_value'] is not None else None
         return result if len(result) > 1 else None
 
+    @staticmethod
+    def _resolve_article_source(article: Dict[str, Any]) -> Optional[str]:
+        """Derive a source name for an article.
+
+        Resolution chain:
+        1. ``site_name`` – use the Readwise-provided value when present.
+        2. Title prefix – the substring before the first ``:`` in the title.
+           Newsletter emails almost always follow a ``Name: Subject`` pattern
+           (e.g. "Money Stuff: SpaceX Crash Insurance").
+        3. ``author`` – the raw author string as a last resort.
+        4. ``None`` – the caller decides on the fallback (usually "Other").
+        """
+        site = (article.get('site_name') or "").strip()
+        if site:
+            return site
+
+        title = (article.get('title') or "").strip()
+        if ':' in title:
+            prefix = title.split(':', 1)[0].strip()
+            if prefix:
+                return prefix
+
+        author = (article.get('author') or "").strip()
+        if author:
+            return author
+
+        return None
+
     def _get_readwise_articles(self, year_month: str) -> List[Dict[str, Any]]:
         """Get archived Readwise articles for a specific month."""
         query = """
@@ -322,6 +350,7 @@ class Publisher:
                 article.get('word_count'),
                 article.get('reading_time')
             )
+            article['site_name'] = self._resolve_article_source(article)
         return articles
 
     def _get_readwise_highlights(self, year_month: str) -> List[Dict[str, Any]]:
@@ -344,25 +373,32 @@ class Publisher:
         return self._fetch_rows(self.readwise_db, query, (year_month,))
 
     def _get_new_reading_sources(self, year_month: str) -> List[str]:
-        """Get 'new' reading sources that appeared for the first time in the given month."""
-        query = """
-        SELECT DISTINCT d.site_name
-        FROM documents d
-        WHERE d.location = 'archive'
-          AND d.site_name IS NOT NULL
-          AND d.site_name != ''
-          AND strftime('%Y-%m', d.last_moved_at) = ?
-          AND NOT EXISTS (
-              SELECT 1 FROM documents d2
-              WHERE d2.location = 'archive'
-                AND d2.site_name = d.site_name
-                AND d2.last_moved_at IS NOT NULL
-                AND strftime('%Y-%m', d2.last_moved_at) < ?
-          )
-        ORDER BY d.site_name ASC
+        """Get 'new' reading sources that appeared for the first time in the given month.
+
+        Uses the same source resolution as ``_resolve_article_source`` so that
+        forwarded-email newsletters (which lack a ``site_name`` in the DB) are
+        detected correctly.
         """
-        rows = self._fetch_rows(self.readwise_db, query, (year_month, year_month))
-        return [row['site_name'] for row in rows if row.get('site_name')]
+        query = """
+        SELECT title, site_name, author, last_moved_at
+        FROM documents
+        WHERE location = 'archive'
+          AND last_moved_at IS NOT NULL
+        ORDER BY last_moved_at ASC
+        """
+        rows = self._fetch_rows(self.readwise_db, query, ())
+
+        # Track which resolved source names we've seen and their first month.
+        first_seen: dict[str, str] = {}
+        for row in rows:
+            source = self._resolve_article_source(row)
+            if not source:
+                continue
+            row_month = row['last_moved_at'][:7]  # "YYYY-MM"
+            if source not in first_seen:
+                first_seen[source] = row_month
+
+        return sorted(s for s, m in first_seen.items() if m == year_month)
 
     def _get_movies_watched(self, year_month: str) -> List[Dict[str, Any]]:
         """Get movies watched in a specific month."""
