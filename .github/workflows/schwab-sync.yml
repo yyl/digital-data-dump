@@ -1,10 +1,7 @@
 name: Schwab Sync
 
 on:
-  schedule:
-    # Run every 5 days at 10:00 AM UTC to keep Schwab OAuth tokens alive.
-    # Refresh tokens expire after 7 days; a 5-day cadence stays within TTL.
-    - cron: '0 10 */5 * *'
+  # Temporarily paused: recurring Schwab OAuth/token-refresh failures on scheduled runs.
   workflow_dispatch:
 
 env:
