@@ -94,6 +94,25 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked --python $(cat .python-version)
 
+      - name: Load Oura tokens from data repo
+        run: |
+          TOKEN_FILE="_data_repo/data/.oura_tokens.json"
+          if [ -f "$TOKEN_FILE" ]; then
+            echo "Found Oura tokens in data repo, loading..."
+            ACCESS=$(jq -r '.access_token // empty' "$TOKEN_FILE")
+            REFRESH=$(jq -r '.refresh_token // empty' "$TOKEN_FILE")
+            if [ -n "$ACCESS" ]; then
+              echo "OURA_ACCESS_TOKEN_FILE=$ACCESS" >> "$GITHUB_ENV"
+              echo "✓ Loaded access token from data repo"
+            fi
+            if [ -n "$REFRESH" ]; then
+              echo "OURA_REFRESH_TOKEN_FILE=$REFRESH" >> "$GITHUB_ENV"
+              echo "✓ Loaded refresh token from data repo"
+            fi
+          else
+            echo "No Oura token file found, will use GitHub Secrets for bootstrap"
+          fi
+
       - name: Run pipeline
         env:
           READWISE_ACCESS_TOKEN: ${{ secrets.READWISE_ACCESS_TOKEN }}
@@ -115,8 +134,8 @@ jobs:
           CODEBASE_USERNAME: ${{ secrets.CODEBASE_USERNAME }}
           OURA_CLIENT_ID: ${{ secrets.OURA_CLIENT_ID }}
           OURA_CLIENT_SECRET: ${{ secrets.OURA_CLIENT_SECRET }}
-          OURA_ACCESS_TOKEN: ${{ secrets.OURA_ACCESS_TOKEN }}
-          OURA_REFRESH_TOKEN: ${{ secrets.OURA_REFRESH_TOKEN }}
+          OURA_ACCESS_TOKEN: ${{ env.OURA_ACCESS_TOKEN_FILE || secrets.OURA_ACCESS_TOKEN }}
+          OURA_REFRESH_TOKEN: ${{ env.OURA_REFRESH_TOKEN_FILE || secrets.OURA_REFRESH_TOKEN }}
         run: |
           COMMAND="${{ inputs.command }}"
           # For scheduled runs, run both publish and backfill
@@ -141,7 +160,23 @@ jobs:
             fi
           fi
 
-      - name: Commit updated databases
+      - name: Persist refreshed Oura tokens to data repo
+        if: always()
+        run: |
+          TOKEN_FILE="_data_repo/data/.oura_tokens.json"
+          ACCESS=$(grep '^OURA_ACCESS_TOKEN=' .env 2>/dev/null | cut -d= -f2-)
+          REFRESH=$(grep '^OURA_REFRESH_TOKEN=' .env 2>/dev/null | cut -d= -f2-)
+
+          if [ -n "$ACCESS" ] && [ -n "$REFRESH" ]; then
+            jq -n --arg a "$ACCESS" --arg r "$REFRESH" \
+              '{"access_token": $a, "refresh_token": $r}' > "$TOKEN_FILE"
+            echo "✓ Refreshed Oura tokens written to data repo"
+          else
+            echo "No refreshed Oura tokens found in .env, skipping persistence"
+          fi
+
+      - name: Commit updated databases and tokens
+        if: always()
         run: |
           COMMAND="${{ inputs.command }}"
           if [ "$COMMAND" = "publish --dry-run" ]; then
@@ -153,18 +188,18 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Add any changed database files
-          git add data/*.db 2>/dev/null || true
+          # Add any changed database files and tokens
+          git add data/*.db data/.oura_tokens.json 2>/dev/null || true
           
           # Only commit if there are changes
           if git diff --staged --quiet; then
-            echo "No database changes to commit"
+            echo "No database or token changes to commit"
           else
-            git commit -m "Update databases [automated]"
+            git commit -m "Update databases and tokens [automated]"
             git push || {
               echo "Push failed, rebasing onto latest remote data repo changes and retrying..."
               git pull --rebase --autostash
               git push
             }
-            echo "Databases updated successfully"
+            echo "Databases and tokens updated successfully"
           fi

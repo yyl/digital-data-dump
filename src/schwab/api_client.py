@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, quote, urlencode, unquote, urlparse
 import requests
 
 from ..config import Config
+from ..token_store import save_tokens_to_env
 
 
 class SchwabAPIClient:
@@ -77,37 +78,7 @@ class SchwabAPIClient:
         self, access_token: str, refresh_token: Optional[str]
     ) -> None:
         """Persist Schwab OAuth tokens into .env."""
-        env_path = Config.PROJECT_ROOT / ".env"
-        lines = []
-        access_found = False
-        refresh_found = False
-
-        if env_path.exists():
-            with open(env_path, "r") as f:
-                for line in f:
-                    if line.startswith("SCHWAB_ACCESS_TOKEN="):
-                        lines.append(f"SCHWAB_ACCESS_TOKEN={access_token}\n")
-                        access_found = True
-                    elif line.startswith("SCHWAB_REFRESH_TOKEN="):
-                        if refresh_token:
-                            lines.append(f"SCHWAB_REFRESH_TOKEN={refresh_token}\n")
-                        else:
-                            lines.append(line)
-                        refresh_found = True
-                    else:
-                        lines.append(line)
-
-        if not access_found:
-            lines.append(f"\nSCHWAB_ACCESS_TOKEN={access_token}\n")
-        if refresh_token and not refresh_found:
-            lines.append(f"SCHWAB_REFRESH_TOKEN={refresh_token}\n")
-
-        fd = os.open(env_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w") as f:
-            f.writelines(lines)
-
-        print(f"✓ Schwab tokens saved to {env_path}")
+        save_tokens_to_env("SCHWAB", access_token, refresh_token)
 
     def run_oauth_flow(self) -> Optional[str]:
         """Run Schwab OAuth authorization code flow."""

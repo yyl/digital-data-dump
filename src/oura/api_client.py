@@ -9,6 +9,7 @@ from urllib.parse import urlparse, parse_qs, urlencode
 import requests
 
 from ..config import Config
+from ..token_store import save_tokens_to_env
 
 
 class OuraAPIClient:
@@ -50,6 +51,7 @@ class OuraAPIClient:
         self.redirect_uri = redirect_uri or Config.OURA_REDIRECT_URI
         self.session = requests.Session()
         self._last_request_time = 0
+        self._refresh_failed = False
 
     def _rate_limit(self) -> None:
         """Enforce rate limiting between requests."""
@@ -84,17 +86,17 @@ class OuraAPIClient:
                 )
 
                 if response.status_code == 401:
-                    if retry_auth and self.refresh_token:
+                    if retry_auth and self.refresh_token and not self._refresh_failed:
                         print("  Access token expired, refreshing...")
-                        if self._refresh_access_token():
+                        if self.refresh_access_token():
                             headers = {"Authorization": f"Bearer {self.access_token}"}
                             return self._make_request(url, params, retry_auth=False)
                         else:
                             print("  Token refresh failed.")
+                            self._refresh_failed = True
                             return None
                     else:
-                        # 401 persists after refresh — endpoint requires
-                        # hardware (Gen 3+) or subscription not available
+                        # 401 persists after refresh or refresh already failed
                         return None
 
                 if response.status_code == 403:
@@ -120,6 +122,19 @@ class OuraAPIClient:
     def needs_auth(self) -> bool:
         """Check if OAuth authentication is needed."""
         return not self.access_token
+
+    def ensure_auth(self) -> bool:
+        """Ensure a valid access token, proactively refreshing upfront if refresh token is available."""
+        if self.refresh_token:
+            if self.refresh_access_token():
+                return True
+            print("Oura token refresh failed; starting OAuth flow.")
+            return self.run_oauth_flow() is not None
+
+        if self.access_token:
+            return True
+
+        return self.run_oauth_flow() is not None
 
     def run_oauth_flow(self) -> Optional[str]:
         """Run OAuth2 authorization code flow to get tokens.
@@ -184,6 +199,7 @@ class OuraAPIClient:
             if access_token:
                 self.access_token = access_token
                 self.refresh_token = refresh_token or self.refresh_token
+                self._refresh_failed = False
                 print("\n✓ Access token obtained successfully!")
                 self._save_tokens_to_env(self.access_token, self.refresh_token)
                 return access_token
@@ -195,14 +211,17 @@ class OuraAPIClient:
             print(f"Error during token exchange: {e}")
             return None
 
-    def _refresh_access_token(self) -> bool:
+    def refresh_access_token(self) -> bool:
         """Use refresh token to get a new access token.
 
         Returns:
             True if refresh was successful.
         """
-        if not self.refresh_token:
+        if not self.refresh_token or not self.client_id or not self.client_secret:
             return False
+
+        old_suffix = self.refresh_token[-8:] if self.refresh_token else "(none)"
+        print(f"Oura token refresh: attempting with refresh suffix ...{old_suffix}")
 
         token_params = {
             "client_id": self.client_id,
@@ -213,64 +232,54 @@ class OuraAPIClient:
 
         try:
             response = self.session.post(self.TOKEN_URL, data=token_params, timeout=30)
-            response.raise_for_status()
-            token_data = response.json()
-
-            access_token = token_data.get("access_token")
-            refresh_token = token_data.get("refresh_token")
-
-            if access_token:
-                self.access_token = access_token
-                if refresh_token:
-                    self.refresh_token = refresh_token
-                self._save_tokens_to_env(self.access_token, self.refresh_token)
-                print("✓ Token refreshed successfully!")
-                return True
-
         except requests.exceptions.RequestException as e:
-            print(f"Error refreshing token: {e}")
+            print(f"Error refreshing Oura token (network): {e}")
+            self._refresh_failed = True
+            return False
 
-        return False
+        if not response.ok:
+            print("Oura token refresh failed:")
+            print(f"  Status: {response.status_code}")
+            try:
+                print(f"  Response: {response.json()}")
+            except Exception:
+                print(f"  Response text: {response.text[:500]}")
+            self._refresh_failed = True
+            return False
+
+        token_data = response.json()
+        access_token = token_data.get("access_token")
+        if not access_token:
+            print(f"Oura token refresh: no access_token in response. Keys: {sorted(token_data.keys())}")
+            self._refresh_failed = True
+            return False
+
+        new_refresh = token_data.get("refresh_token")
+        old_suffix = self.refresh_token[-8:] if self.refresh_token else "(none)"
+        new_suffix = new_refresh[-8:] if new_refresh else "(none)"
+        token_changed = new_refresh and new_refresh != self.refresh_token
+
+        print("Oura token refresh succeeded:")
+        print(f"  Response keys: {sorted(token_data.keys())}")
+        print(f"  New refresh token returned: {bool(new_refresh)}")
+        print(f"  Refresh token changed: {token_changed}")
+        print(f"  Old refresh suffix: ...{old_suffix}")
+        print(f"  New refresh suffix: ...{new_suffix}")
+
+        self.access_token = access_token
+        self.refresh_token = new_refresh or self.refresh_token
+        self._refresh_failed = False
+        self._save_tokens_to_env(self.access_token, self.refresh_token)
+        return True
+
+    # Alias for backward compatibility
+    _refresh_access_token = refresh_access_token
 
     def _save_tokens_to_env(
         self, access_token: str, refresh_token: Optional[str]
     ) -> None:
         """Save OAuth tokens to .env file."""
-        env_path = Config.PROJECT_ROOT / ".env"
-
-        # Read existing content
-        lines = []
-        access_found = False
-        refresh_found = False
-
-        if env_path.exists():
-            with open(env_path, "r") as f:
-                for line in f:
-                    if line.startswith("OURA_ACCESS_TOKEN="):
-                        lines.append(f"OURA_ACCESS_TOKEN={access_token}\n")
-                        access_found = True
-                    elif line.startswith("OURA_REFRESH_TOKEN="):
-                        if refresh_token:
-                            lines.append(f"OURA_REFRESH_TOKEN={refresh_token}\n")
-                        else:
-                            lines.append(line)
-                        refresh_found = True
-                    else:
-                        lines.append(line)
-
-        # Add tokens if not found
-        if not access_found:
-            lines.append(f"\nOURA_ACCESS_TOKEN={access_token}\n")
-        if not refresh_found and refresh_token:
-            lines.append(f"OURA_REFRESH_TOKEN={refresh_token}\n")
-
-        # Write back securely
-        fd = os.open(env_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w") as f:
-            f.writelines(lines)
-
-        print(f"✓ Tokens saved to {env_path}")
+        save_tokens_to_env("OURA", access_token, refresh_token)
 
     # ==========================================================================
     # Daily Data Fetching

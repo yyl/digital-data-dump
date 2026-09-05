@@ -599,16 +599,15 @@ Currently isolated:
 |---|---|---|
 | `schwab` (workflow) | `SCHWAB_CLIENT_ID`, `SCHWAB_CLIENT_SECRET`, `SCHWAB_ACCESS_TOKEN`, `SCHWAB_REFRESH_TOKEN`, `SCHWAB_CALLBACK_URL` | Every 5 days (`schwab-sync.yml`) to maintain OAuth tokens within 7-day TTL |
 
-#### Schwab Sync Workflow & Token Persistence
+#### OAuth Token Persistence (Schwab & Oura)
 
-The Schwab API refresh tokens expire after 7 days. To automate this without giving CI write access to GitHub Secrets (which would require a highly privileged PAT and expand the security blast radius), we use the **private data repository** to persist updated tokens:
+Both the Charles Schwab and Oura Ring APIs use rotating OAuth refresh tokens (Oura refresh tokens are single-use with rotation upon every refresh; Schwab refresh tokens expire after 7 days). To automate renewals without giving CI write access to GitHub Secrets (which would require a highly privileged PAT and expand the security blast radius), we use the **private data repository** to persist updated tokens:
 
-1. **Schedule**: Runs every 5 days (`0 10 */5 * *`) via `schwab-sync.yml`.
-2. **Bootstrap/Fallback**: Checks for `data/.schwab_tokens.json` in the checked-out data repository. If it doesn't exist, it falls back to the static `SCHWAB_ACCESS_TOKEN` and `SCHWAB_REFRESH_TOKEN` environment secrets.
-3. **Execution**: Runs `schwab-analyze` (which handles sync).
-4. **Token Refresh**: If the API client refreshes the access token, the new access and refresh tokens are written to `.env`.
-5. **Persistence**: The workflow extracts these tokens from `.env` and writes them to `data/.schwab_tokens.json`.
-6. **Commit**: Commits and pushes both `data/schwab.db` and `data/.schwab_tokens.json` back to the private data repository.
+1. **Bootstrap/Fallback**: Checks for `data/.oura_tokens.json` (in `monthly-pipeline.yml`) or `data/.schwab_tokens.json` (in `schwab-sync.yml`) in the checked-out data repository. If the file does not exist, it falls back to the static environment secrets.
+2. **Execution**: The sync managers proactively refresh tokens upfront when a refresh token is present.
+3. **Token Refresh**: If the API client refreshes the access token, the new access and refresh tokens are written to `.env` via the shared `save_tokens_to_env` helper (`src/token_store.py`).
+4. **Persistence**: The workflow extracts these tokens from `.env` and writes them to `data/.oura_tokens.json` or `data/.schwab_tokens.json`.
+5. **Commit**: Commits and pushes the updated token JSON file back to the private data repository along with the updated databases.
 
 Since both the main pipeline and Schwab workflows commit to the same private data repo, push conflicts are managed via git rebase and retries.
 

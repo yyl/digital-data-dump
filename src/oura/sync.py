@@ -35,14 +35,11 @@ class OuraSyncManager:
         self.api = api or OuraAPIClient()
 
     def ensure_auth(self) -> bool:
-        """Ensure we have a valid access token, running OAuth if needed."""
-        if self.api.needs_auth():
-            print("No Oura access token found. Starting OAuth flow...")
-            token = self.api.run_oauth_flow()
-            if not token:
-                print("Error: Failed to obtain access token")
-                return False
-        return True
+        """Ensure Oura authentication is available."""
+        if self.api.ensure_auth():
+            return True
+        print("Error: Failed to authenticate with Oura Ring")
+        return False
 
     def _sync_data_type(self, data_type: str) -> int:
         """Sync a single data type.
@@ -119,11 +116,18 @@ class OuraSyncManager:
         print("Syncing Oura Ring data...")
 
         for data_type in self.UPSERT_METHODS:
+            if getattr(self.api, "_refresh_failed", False):
+                print(f"  ✗ Skipping {data_type}: authentication failed")
+                stats[data_type] = 0
+                continue
+
             try:
                 count = self._sync_data_type(data_type)
                 stats[data_type] = count
                 if count > 0:
                     print(f"  ✓ {data_type}: {count} records")
+                elif getattr(self.api, "_refresh_failed", False):
+                    print(f"  ✗ {data_type}: authentication failed")
                 else:
                     last_sync = self.db.get_last_sync_date(data_type)
                     if last_sync:
