@@ -1,8 +1,8 @@
-# digital-footprint-dump
+# digital-data-dump
 
-[![Tests](https://github.com/yyl/digital-footprint-dump/actions/workflows/tests.yml/badge.svg)](https://github.com/yyl/digital-footprint-dump/actions/workflows/tests.yml)
+[![Tests](https://github.com/yyl/digital-data-dump/actions/workflows/tests.yml/badge.svg)](https://github.com/yyl/digital-data-dump/actions/workflows/tests.yml)
 
-`digital-footprint-dump` collects data from personal services, analyzes it by month, and generates a draft markdown wrap-up post plus activity data files for a blog.
+`digital-data-dump` collects data from personal services, analyzes it by month, and generates a draft markdown wrap-up post plus activity data files for a blog.
 
 ## What This Repo Does
 

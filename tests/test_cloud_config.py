@@ -89,7 +89,7 @@ class TestConfigValidation:
         with patch.object(Config, 'DATA_REPO_GITHUB_TOKEN', 'test_token'):
             with patch.object(Config, 'BLOG_GITHUB_TOKEN', ''):
                 with patch.object(Config, 'DATA_REPO_OWNER', 'yyl'):
-                    with patch.object(Config, 'DATA_REPO_NAME', 'digital-footprint-data'):
+                    with patch.object(Config, 'DATA_REPO_NAME', 'digital-data-vault'):
                         assert Config.validate_data_repo_github() is True
 
     def test_validate_data_repo_github_accepts_legacy_blog_token(self):
@@ -99,7 +99,7 @@ class TestConfigValidation:
         with patch.object(Config, 'DATA_REPO_GITHUB_TOKEN', ''):
             with patch.object(Config, 'BLOG_GITHUB_TOKEN', 'test_token'):
                 with patch.object(Config, 'DATA_REPO_OWNER', 'yyl'):
-                    with patch.object(Config, 'DATA_REPO_NAME', 'digital-footprint-data'):
+                    with patch.object(Config, 'DATA_REPO_NAME', 'digital-data-vault'):
                         assert Config.validate_data_repo_github() is True
 
     def test_validate_data_repo_github_missing_token(self):
@@ -109,7 +109,7 @@ class TestConfigValidation:
         with patch.object(Config, 'DATA_REPO_GITHUB_TOKEN', ''):
             with patch.object(Config, 'BLOG_GITHUB_TOKEN', ''):
                 with patch.object(Config, 'DATA_REPO_OWNER', 'yyl'):
-                    with patch.object(Config, 'DATA_REPO_NAME', 'digital-footprint-data'):
+                    with patch.object(Config, 'DATA_REPO_NAME', 'digital-data-vault'):
                         with pytest.raises(ValueError, match="DATA_REPO_GITHUB_TOKEN"):
                             Config.validate_data_repo_github()
 
@@ -119,7 +119,7 @@ class TestConfigValidation:
 
         with patch.object(Config, 'DATA_REPO_GITHUB_TOKEN', ''):
             with patch.object(Config, 'DATA_REPO_OWNER', 'yyl'):
-                with patch.object(Config, 'DATA_REPO_NAME', 'digital-footprint-data'):
+                with patch.object(Config, 'DATA_REPO_NAME', 'digital-data-vault'):
                     with patch.object(Config, 'BLOG_GITHUB_TOKEN', 'test_token'):
                         assert Config.validate_data_repo_github() is True
 

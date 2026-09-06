@@ -1,4 +1,4 @@
-"""Configuration loader for Digital Footprint Dump."""
+"""Configuration loader for Digital Data Dump."""
 
 import os
 from pathlib import Path
@@ -15,7 +15,7 @@ def _resolve_storage_root(project_root: Path) -> Path:
     if configured_root:
         return Path(configured_root).expanduser().resolve()
 
-    sibling_repo = (project_root.parent / "digital-footprint-data").resolve()
+    sibling_repo = (project_root.parent / "digital-data-vault").resolve()
     if sibling_repo.exists():
         return sibling_repo
 
@@ -147,7 +147,7 @@ class Config:
         _env_or_default("DATA_REPO_PAT", BLOG_GITHUB_TOKEN),
     )
     DATA_REPO_OWNER: str = _env_or_default("DATA_REPO_OWNER", "yyl")
-    DATA_REPO_NAME: str = _env_or_default("DATA_REPO_NAME", "digital-footprint-data")
+    DATA_REPO_NAME: str = _env_or_default("DATA_REPO_NAME", "digital-data-vault")
     DATA_GITHUB_TARGET_BRANCH: str = _env_or_default("DATA_GITHUB_TARGET_BRANCH", "main")
     DATA_REPO_POSTS_DIR: str = _env_or_default("DATA_REPO_POSTS_DIR", "posts").strip("/") or "posts"
     

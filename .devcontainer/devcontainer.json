@@ -1,5 +1,5 @@
 {
-  "name": "digital-footprint-dump",
+  "name": "digital-data-dump",
   "image": "yyl/dev-tools:latest",
   "customizations": {
     "vscode": {

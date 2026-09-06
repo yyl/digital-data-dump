@@ -43,13 +43,13 @@ It resolves a storage root, then uses:
 Resolution order:
 
 1. `DATA_REPO_LOCAL_PATH` if set
-2. sibling repo `../digital-footprint-data` if it exists
+2. sibling repo `../digital-data-vault` if it exists
 3. this repo itself
 
 That means local development often uses:
 
-- `/.../digital-footprint-data/data/*.db`
-- `/.../digital-footprint-data/files/*`
+- `/.../digital-data-vault/data/*.db`
+- `/.../digital-data-vault/files/*`
 
 GitHub Actions checks out the private data repo separately and links its `data/` and `files/` into the workspace.
 
@@ -503,7 +503,7 @@ Sources currently surfaced in the published report use comparisons for these met
 
 ## Database Access Pattern
 
-All DB managers inherit from `BaseDatabase` in [`src/database.py`](/Users/yulong/Documents%20(local)/coding/digital-footprint-dump/src/database.py).
+All DB managers inherit from `BaseDatabase` in [`src/database.py`](/Users/yulong/Documents%20(local)/coding/digital-data-dump/src/database.py).
 
 Typical usage:
 

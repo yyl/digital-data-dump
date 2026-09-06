@@ -6,7 +6,7 @@ on:
 
 env:
   DATA_REPO_OWNER: ${{ secrets.DATA_REPO_OWNER || 'yyl' }}
-  DATA_REPO_NAME: ${{ secrets.DATA_REPO_NAME || 'digital-footprint-data' }}
+  DATA_REPO_NAME: ${{ secrets.DATA_REPO_NAME || 'digital-data-vault' }}
   DATA_REPO_TOKEN: ${{ secrets.DATA_REPO_GITHUB_TOKEN || secrets.DATA_REPO_PAT || secrets.BLOG_GITHUB_TOKEN }}
 
 concurrency:

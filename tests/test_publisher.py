@@ -230,7 +230,7 @@ class TestPublisher(unittest.TestCase):
         self.publisher._build_github_client = MagicMock(return_value=data_repo_client)
 
         mock_config.DATA_REPO_OWNER = "yyl"
-        mock_config.DATA_REPO_NAME = "digital-footprint-data"
+        mock_config.DATA_REPO_NAME = "digital-data-vault"
         mock_config.DATA_GITHUB_TARGET_BRANCH = "main"
         mock_config.DATA_REPO_POSTS_DIR = "posts"
         mock_config.validate_data_repo_github = MagicMock()
@@ -240,7 +240,7 @@ class TestPublisher(unittest.TestCase):
         mock_config.validate_data_repo_github.assert_called_once_with()
         self.publisher._build_github_client.assert_called_once_with(
             repo_owner="yyl",
-            repo_name="digital-footprint-data",
+            repo_name="digital-data-vault",
             target_branch="main",
         )
         data_repo_client.create_or_update_files.assert_called_once_with(
@@ -282,7 +282,7 @@ class TestPublisher(unittest.TestCase):
         self.publisher._build_github_client = MagicMock(return_value=data_repo_client)
 
         mock_config.DATA_REPO_OWNER = "yyl"
-        mock_config.DATA_REPO_NAME = "digital-footprint-data"
+        mock_config.DATA_REPO_NAME = "digital-data-vault"
         mock_config.DATA_GITHUB_TARGET_BRANCH = "main"
         mock_config.validate_data_repo_github = MagicMock()
 
@@ -294,7 +294,7 @@ class TestPublisher(unittest.TestCase):
         )
         self.publisher._build_github_client.assert_called_once_with(
             repo_owner="yyl",
-            repo_name="digital-footprint-data",
+            repo_name="digital-data-vault",
             target_branch="main",
         )
         data_repo_client.create_or_update_files.assert_called_once_with(

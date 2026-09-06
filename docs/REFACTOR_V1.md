@@ -14,11 +14,11 @@ The codebase has **4 data sources** (Readwise, Foursquare, Letterboxd, Overcast)
 **Adding a new source today requires touching 6+ files:**
 
 1. Create a new `src/<source>/` package (4 files)
-2. Add config entries to [config.py](file:///Users/yulong/Documents%20(local)/coding/digital-footprint-dump/src/config.py)
-3. Add CLI commands to [main.py](file:///Users/yulong/Documents%20(local)/coding/digital-footprint-dump/main.py) (sync, analyze, init, status blocks)
-4. Add `_get_<source>_analysis()` method to [publisher.py](file:///Users/yulong/Documents%20(local)/coding/digital-footprint-dump/src/publish/publisher.py)
-5. Add `_get_all_<source>()` method to [data_generator.py](file:///Users/yulong/Documents%20(local)/coding/digital-footprint-dump/src/publish/data_generator.py)
-6. Add `_generate_<source>_section()` to [markdown_generator.py](file:///Users/yulong/Documents%20(local)/coding/digital-footprint-dump/src/publish/markdown_generator.py)
+2. Add config entries to [config.py](file:///Users/yulong/Documents%20(local)/coding/digital-data-dump/src/config.py)
+3. Add CLI commands to [main.py](file:///Users/yulong/Documents%20(local)/coding/digital-data-dump/main.py) (sync, analyze, init, status blocks)
+4. Add `_get_<source>_analysis()` method to [publisher.py](file:///Users/yulong/Documents%20(local)/coding/digital-data-dump/src/publish/publisher.py)
+5. Add `_get_all_<source>()` method to [data_generator.py](file:///Users/yulong/Documents%20(local)/coding/digital-data-dump/src/publish/data_generator.py)
+6. Add `_generate_<source>_section()` to [markdown_generator.py](file:///Users/yulong/Documents%20(local)/coding/digital-data-dump/src/publish/markdown_generator.py)
 
 ### The Schema Challenge
 
