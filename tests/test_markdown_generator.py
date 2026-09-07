@@ -379,6 +379,18 @@ class TestMarkdownGenerator(unittest.TestCase):
                         "note": "This connects to the chapter above.",
                     }
                 ],
+            },
+            {
+                "title": "Second Essay",
+                "category": "article",
+                "link": "https://example.com/second",
+                "highlights": [
+                    {
+                        "date": "2026-04-05T10:00:00Z",
+                        "text": "Another great highlight.",
+                        "note": "",
+                    }
+                ],
             }
         ])
 
@@ -387,6 +399,8 @@ class TestMarkdownGenerator(unittest.TestCase):
         self.assertIn("> Note: This connects to the chapter above.", result)
         self.assertIn("*2026-04-04*", result)
         self.assertNotIn("| Date | Highlight | Note |", result)
+        self.assertIn("\n---\n", result)
+        self.assertIn("#### [Second Essay](https://example.com/second) (article)", result)
 
     def test_generate_monthly_summary_moves_whats_new_into_source_sections(self):
         result = self.generator.generate_monthly_summary({
