@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     layout_mode TEXT,
     completed INTEGER NOT NULL,
     created_at REAL NOT NULL,
-    modified_at REAL NOT NULL,
+    modified_at REAL,
     completed_at REAL,
     is_deleted INTEGER NOT NULL DEFAULT 0,
     first_seen_at TEXT NOT NULL,

@@ -89,7 +89,7 @@ class WorkflowyAPIClient:
         timestamps: Dict[str, Optional[float]] = {}
         for key in ("createdAt", "modifiedAt", "completedAt"):
             value = node.get(key)
-            if key == "completedAt" and value is None:
+            if key in ("modifiedAt", "completedAt") and value is None:
                 timestamps[key] = None
             elif isinstance(value, bool) or not isinstance(value, (int, float)):
                 raise WorkflowyAPIError(f"Node {node_id!r} has an invalid {key}.")

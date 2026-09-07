@@ -113,6 +113,33 @@ def test_api_client_rate_limit_is_actionable():
         WorkflowyAPIClient(api_key="secret", session=session).export_all_nodes()
 
 
+def test_api_client_allows_null_modified_at():
+    """modifiedAt can be null in the Workflowy API."""
+    response = MagicMock(status_code=200)
+    response.json.return_value = {
+        "nodes": [{
+            "id": "one",
+            "parent_id": None,
+            "name": "Node one",
+            "note": None,
+            "priority": 100,
+            "completed": False,
+            "data": {"layoutMode": "bullets"},
+            "createdAt": 1,
+            "modifiedAt": None,
+            "completedAt": None,
+        }]
+    }
+    session = MagicMock()
+    session.get.return_value = response
+    client = WorkflowyAPIClient(api_key="secret", session=session)
+
+    result = client.export_all_nodes()
+
+    assert result[0]["id"] == "one"
+    assert result[0]["modified_at"] is None
+
+
 def normalized(raw):
     """Use the production normalizer so fake sync data matches client output."""
     return WorkflowyAPIClient._normalize_node(raw, set())
