@@ -29,6 +29,7 @@ Usage:
     python main.py oura-analyze      # Analyze Oura Ring daily summaries
     python main.py schwab-sync       # Sync Charles Schwab accounts
     python main.py schwab-analyze    # Analyze Schwab monthly P&L
+    python main.py workflowy-sync    # Sync Workflowy nodes
     python main.py publish           # Publish monthly report to data repo
     python main.py publish --dry-run # Validate config without publishing
     python main.py publish --skip-sync-analysis # Publish from current analysis data
@@ -132,6 +133,11 @@ def cmd_init():
     from src.schwab.database import SchwabDatabase
     schwab_db = SchwabDatabase()
     schwab_db.init_tables()
+
+    # Workflowy
+    from src.workflowy.database import WorkflowyDatabase
+    workflowy_db = WorkflowyDatabase()
+    workflowy_db.init_tables()
     
     print("\nDone!")
 
@@ -727,6 +733,19 @@ def cmd_schwab_sync():
     sync_manager.sync()
 
 
+def cmd_workflowy_sync():
+    """Sync Workflowy nodes."""
+    try:
+        Config.validate_workflowy()
+    except ValueError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+
+    from src.workflowy.sync import WorkflowySyncManager
+
+    WorkflowySyncManager().sync()
+
+
 def cmd_schwab_analyze():
     """Analyze Schwab monthly P&L and account snapshots from transactions."""
     from src.schwab.database import SchwabDatabase
@@ -865,6 +884,16 @@ def cmd_sync():
         cmd_schwab_sync()
     except ValueError as e:
         print(f"Skipping Charles Schwab: {e}\n")
+
+    print()
+
+    # Workflowy
+    print("--- Workflowy ---")
+    try:
+        Config.validate_workflowy()
+        cmd_workflowy_sync()
+    except ValueError as e:
+        print(f"Skipping Workflowy: {e}\n")
 
 
 def cmd_status():
@@ -1235,6 +1264,24 @@ def cmd_status():
     except Exception as e:
         print(f"  Error: {e}")
 
+    print()
+
+    # Workflowy
+    print("--- Workflowy ---")
+    try:
+        from src.workflowy.sync import WorkflowySyncManager
+
+        status = WorkflowySyncManager().get_status()
+        print(f"  active nodes: {status['active_nodes']}")
+        print(f"  tombstoned nodes: {status['tombstoned_nodes']}")
+        state = status["sync_state"]
+        if state and state["last_successful_sync_at"]:
+            print(f"  last synced: {state['last_successful_sync_at']}")
+        else:
+            print("  last synced: never")
+    except Exception as e:
+        print(f"  Error: {e}")
+
 
 def main():
     """Main entry point."""
@@ -1272,6 +1319,7 @@ def main():
     subparsers.add_parser("oura-analyze", help="Analyze Oura Ring daily summaries")
     subparsers.add_parser("schwab-sync", help="Sync Charles Schwab accounts")
     subparsers.add_parser("schwab-analyze", help="Analyze Schwab monthly P&L")
+    subparsers.add_parser("workflowy-sync", help="Sync Workflowy nodes")
     subparsers.add_parser("status", help="Show sync status")
     subparsers.add_parser("backfill", help="Commit activity data files to configured repos")
     
@@ -1325,6 +1373,7 @@ def main():
         "oura-analyze": cmd_oura_analyze,
         "schwab-sync": cmd_schwab_sync,
         "schwab-analyze": cmd_schwab_analyze,
+        "workflowy-sync": cmd_workflowy_sync,
         "status": cmd_status,
     }
     

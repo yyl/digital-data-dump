@@ -15,6 +15,20 @@ Tracks books, highlights, and Reader documents.
 **Required in `.env`**
 - `READWISE_ACCESS_TOKEN`
 
+## Workflowy
+
+Mirrors the current Workflowy outline as nodes, retaining locally observed deletions as tombstones for later analysis.
+
+**Commands**
+- `workflowy-sync`
+
+**Required in `.env`**
+- `WORKFLOWY_API_KEY`
+
+Create an API key in Workflowy account settings and add it to `.env`. Workflowy exposes a full `nodes-export` endpoint but no documented delta cursor or modified-since filter, so every sync downloads the complete node export and locally upserts only changed nodes. The export endpoint is limited to one request per minute; wait before retrying a rate-limited manual sync.
+
+Workflowy sync currently only stores raw node data. Monthly node-created/completed analysis and report publishing are intentionally not included yet.
+
 ## Foursquare
 
 Tracks Swarm/Foursquare checkins and place visits.

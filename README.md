@@ -25,7 +25,7 @@ uv sync
 cp .env.example .env
 ```
 
-Then edit `.env` with the credentials you need for the sources you want to use.
+Then edit `.env` with the credentials for the sources you want to use.
 
 ## Basic Usage
 
@@ -45,6 +45,7 @@ uv run main.py <command>
 | `publish` | Generate and publish a draft monthly report |
 | `backfill` | Refresh analysis and regenerate blog activity YAML files |
 | `status` | Show current sync status |
+| `workflowy-sync` | Sync a full Workflowy node export into the local mirror |
 | `{source}-sync` | Sync one source |
 | `{source}-analyze` | Analyze one source |
 

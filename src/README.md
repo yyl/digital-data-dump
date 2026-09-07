@@ -143,6 +143,13 @@ Published workout metrics come from Apple Health monthly analysis. Strong is sti
 
 ## Source-Specific Technical Notes
 
+### Workflowy
+
+- Syncs the complete `GET /api/v1/nodes-export` response into `workflowy.db`; Workflowy does not document a delta endpoint, cursor, or modified-since filter.
+- `nodes` preserves source fields, the complete raw JSON object, and local audit fields (`first_seen_at`, `last_seen_at`, `is_deleted`). Missing IDs from a validated export are retained as tombstones rather than deleted.
+- `sync_state` records the last successful snapshot and counts. A file lock prevents overlapping Workflowy syncs from applying stale snapshots.
+- Workflowy has no analysis or publishing integration yet.
+
 ### Readwise
 
 - Syncs Reader documents plus associated metadata into `readwise.db`
@@ -643,4 +650,3 @@ When adding or updating a dependency locally, run `uv lock` and commit the updat
 | `github-actions` | Opens PRs to bump pinned action SHAs when new releases are available |
 
 Both run on a weekly schedule. Dependabot does not auto-merge; it opens PRs for manual review.
-

@@ -48,6 +48,13 @@ class Config:
     DATABASE_PATH = DATA_DIR / "readwise.db"
     READWISE_RATE_LIMIT = 20
     READER_RATE_LIMIT = 20
+
+    # ==========================================================================
+    # Workflowy Configuration
+    # ==========================================================================
+    WORKFLOWY_API_KEY: str = os.getenv("WORKFLOWY_API_KEY", "").strip()
+    WORKFLOWY_API_BASE = "https://workflowy.com/api/v1"
+    WORKFLOWY_DATABASE_PATH = DATA_DIR / "workflowy.db"
     
     # ==========================================================================
     # Foursquare Configuration
@@ -158,6 +165,16 @@ class Config:
             raise ValueError(
                 "READWISE_ACCESS_TOKEN is not set. "
                 "Please copy .env.example to .env and add your token."
+            )
+        return True
+
+    @classmethod
+    def validate_workflowy(cls) -> bool:
+        """Validate Workflowy configuration."""
+        if not cls.WORKFLOWY_API_KEY:
+            raise ValueError(
+                "WORKFLOWY_API_KEY is not set. "
+                "Create an API key in Workflowy and add it to your .env file."
             )
         return True
     
