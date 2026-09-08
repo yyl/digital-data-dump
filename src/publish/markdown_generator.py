@@ -5,7 +5,7 @@ from typing import Dict, Any, Optional
 from zoneinfo import ZoneInfo
 from urllib.parse import quote, urlparse
 
-from ..comparison import format_change, format_comparison_suffix
+from ..comparison import format_comparison_suffix
 
 
 class MarkdownGenerator:
@@ -510,7 +510,9 @@ categories: ["Summary"]
             return ""
 
         lines = ["", "### Highlights"]
-        for group in highlight_groups:
+        for idx, group in enumerate(highlight_groups):
+            if idx > 0:
+                lines.extend(["", "---"])
             title = group.get('title') or "Untitled"
             category = group.get('category')
             heading = self._markdown_link(title, group.get('link'))
