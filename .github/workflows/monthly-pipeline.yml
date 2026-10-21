@@ -2,9 +2,9 @@ name: Monthly Pipeline
 
 on:
   schedule:
-    # Run on the last day of each month at 11:00 AM UTC
-    # Cron doesn't support "last day", so we run on the 28th-31st and check the date
-    - cron: '0 11 28-31 * *'
+    # Publish the previous calendar month on the 1st at 6:00 AM Pacific (PDT/PST)
+    - cron: '0 6 1 * *'
+      timezone: America/Los_Angeles
   workflow_dispatch:
     inputs:
       command:
@@ -19,12 +19,14 @@ on:
           - backfill
           - publish --dry-run
       last_month:
-        description: 'Publish for the last month instead of the latest (for manual runs)'
+        description: 'Publish for the previous calendar month instead of the latest (for manual runs)'
         required: false
         default: false
         type: boolean
 
 env:
+  # Keep the previous-calendar-month selection aligned with the schedule's timezone.
+  TZ: America/Los_Angeles
   DATA_REPO_OWNER: ${{ secrets.DATA_REPO_OWNER || 'yyl' }}
   DATA_REPO_NAME: ${{ secrets.DATA_REPO_NAME || 'digital-data-vault' }}
   DATA_REPO_TOKEN: ${{ secrets.DATA_REPO_GITHUB_TOKEN || secrets.DATA_REPO_PAT || secrets.BLOG_GITHUB_TOKEN }}
@@ -34,33 +36,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  check-date:
-    runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.check.outputs.should_run }}
-    steps:
-      - name: Check if last day of month
-        id: check
-        run: |
-          if [ "${{ github.event_name }}" != "schedule" ]; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            echo "Not a scheduled run, proceeding..."
-            exit 0
-          fi
-
-          tomorrow=$(date -d "+1 day" +%d)
-          if [ "$tomorrow" != "01" ]; then
-            echo "should_run=false" >> "$GITHUB_OUTPUT"
-            echo "Not the last day of the month, skipping..."
-            exit 0
-          fi
-
-          echo "should_run=true" >> "$GITHUB_OUTPUT"
-          echo "Today is the last day of the month, proceeding..."
-
   pipeline:
-    needs: check-date
-    if: ${{ needs.check-date.outputs.should_run == 'true' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -138,10 +114,10 @@ jobs:
           OURA_REFRESH_TOKEN: ${{ env.OURA_REFRESH_TOKEN_FILE || secrets.OURA_REFRESH_TOKEN }}
         run: |
           COMMAND="${{ inputs.command }}"
-          # For scheduled runs, run both publish and backfill
+          # Scheduled runs publish the previous calendar month, then backfill.
           if [ -z "$COMMAND" ]; then
-            echo "Running: uv run main.py publish"
-            uv run --python $(cat .python-version) main.py publish
+            echo "Running: uv run main.py publish --last-month"
+            uv run --python $(cat .python-version) main.py publish --last-month
             echo ""
             echo "Running: uv run main.py backfill"
             uv run --python $(cat .python-version) main.py backfill

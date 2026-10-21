@@ -115,9 +115,9 @@ Supported paths:
 - `publish`: sync all sources, analyze all sources, generate the report, commit the draft post to the data repo under `posts/`
 - `publish --skip-sync-analysis`: generate the report from existing analysis data
 - `publish --dry-run`: render the report locally only
-- `publish --last-month`: publish the previous month instead of the latest available month
+- `publish --last-month`: publish the previous calendar month based on the process's local date; fail if that month has no analysis data
 
-The publish flow scans the available analysis DBs and chooses the latest available `YYYY-MM`, while tolerating optional sources that may be missing. Report drafts are written to `DATA_REPO_POSTS_DIR` in the data repo, which defaults to `posts`.
+The publish flow scans the available analysis DBs and chooses the latest available `YYYY-MM`, while tolerating optional sources that may be missing. With `--last-month`, it selects the previous calendar month even if current-month analysis is absent. The scheduled workflow sets `TZ=America/Los_Angeles` so this selection follows Pacific time. Report drafts are written to `DATA_REPO_POSTS_DIR` in the data repo, which defaults to `posts`.
 
 ### Backfill
 

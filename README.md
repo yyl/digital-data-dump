@@ -83,7 +83,7 @@ Useful publish flags:
 
 - `--dry-run`: render the report locally without publishing
 - `--skip-sync-analysis`: publish from existing analysis data
-- `--last-month`: publish the previous month instead of the latest available one
+- `--last-month`: publish the previous calendar month, requiring analysis data for that month
 
 ### Regenerate Activity Data Files
 
@@ -118,7 +118,7 @@ Optional:
 
 This repo includes a monthly GitHub Actions workflow so the pipeline can run automatically or on demand.
 
-- Scheduled run: last day of each month at `11:00 AM UTC`
+- Scheduled run: the 1st of each month at `6:00 AM Pacific` (`America/Los_Angeles`, automatically adjusting for PDT/PST). Runs `publish --last-month` for the previous calendar month, then `backfill`.
 - Manual run: open the workflow in the Actions tab and use the workflow inputs
 
 For source setup details, see [docs/SOURCES.md](docs/SOURCES.md). For developer-oriented deployment details, see [src/README.md](src/README.md).

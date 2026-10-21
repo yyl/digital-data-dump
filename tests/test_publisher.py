@@ -1,4 +1,5 @@
 import unittest
+from datetime import date
 from unittest.mock import MagicMock, patch
 from src.publish.publisher import Publisher
 from src.database import BaseDatabase
@@ -183,9 +184,36 @@ class TestPublisher(unittest.TestCase):
 
         self.assertEqual(result, "2025-04")
         
-        # Test last_month flag
-        result_last = self.publisher._get_target_year_month(last_month=True)
-        self.assertEqual(result_last, "2025-03")
+    def test_last_month_selects_previous_calendar_month(self):
+        cases = [
+            # Current-month data must not be required to select last month.
+            (date(2026, 11, 1), ["2026-09", "2026-10"], "2026-10"),
+            (date(2026, 11, 1), ["2026-10", "2026-11"], "2026-10"),
+            (date(2027, 1, 1), ["2026-12"], "2026-12"),
+            (date(2028, 3, 1), ["2028-02", "2028-03"], "2028-02"),
+            (date(2027, 3, 1), ["2027-02"], "2027-02"),
+        ]
+        for today, months, expected in cases:
+            with self.subTest(today=today, months=months):
+                self.publisher._fetch_rows = MagicMock(
+                    return_value=[{"year_month": month} for month in months]
+                )
+                with patch("src.publish.publisher.date") as mock_date:
+                    mock_date.today.return_value = today
+                    self.assertEqual(
+                        self.publisher._get_target_year_month(last_month=True), expected
+                    )
+
+    def test_last_month_does_not_publish_another_month_when_target_is_missing(self):
+        self.publisher._fetch_rows = MagicMock(
+            return_value=[{"year_month": "2026-09"}, {"year_month": "2026-11"}]
+        )
+        self.publisher._build_github_client = MagicMock()
+        with patch("src.publish.publisher.date") as mock_date:
+            mock_date.today.return_value = date(2026, 11, 1)
+            with self.assertRaisesRegex(ValueError, "previous calendar month \\(2026-10\\)"):
+                self.publisher.publish(last_month=True)
+        self.publisher._build_github_client.assert_not_called()
 
     def test_get_new_github_repos_returns_repos(self):
         self.mock_github_activity_db.exists.return_value = True

@@ -1,6 +1,6 @@
 """Publisher module for generating and committing monthly summaries."""
 
-from datetime import date
+from datetime import date, timedelta
 import logging
 import re
 from typing import Dict, Any, Optional, List
@@ -551,7 +551,7 @@ class Publisher:
         )
     
     def _get_target_year_month(self, last_month: bool = False) -> Optional[str]:
-        """Get the target year_month (latest or previous) from any analysis source."""
+        """Choose the latest available month or the previous calendar month."""
         query = "SELECT DISTINCT year_month FROM analysis"
         all_months = set()
 
@@ -580,10 +580,16 @@ class Publisher:
         if not all_months:
             return None
             
-        sorted_months = sorted(list(all_months), reverse=True)
         if last_month:
-            return sorted_months[1] if len(sorted_months) > 1 else None
-        return sorted_months[0]
+            previous_month = date.today().replace(day=1) - timedelta(days=1)
+            target = previous_month.strftime("%Y-%m")
+            if target not in all_months:
+                raise ValueError(
+                    f"No analysis data found for previous calendar month ({target}). "
+                    "Run 'analyze' first."
+                )
+            return target
+        return max(all_months)
     
     def _ensure_github_client(self):
         """Initialize GitHub client if not already provided."""
@@ -618,7 +624,7 @@ class Publisher:
         """Generate and publish the monthly summary blog post.
         
         Args:
-            last_month: If True, generate the summary for the previous month.
+            last_month: If True, generate the summary for the previous calendar month.
             
         Returns:
             Dictionary with commit information.
@@ -706,7 +712,7 @@ class Publisher:
         
         Args:
             year_month: Period to generate for (YYYY-MM format). Defaults to latest.
-            last_month: If True and year_month not provided, generates for the previous month.
+            last_month: If True and year_month not provided, use the previous calendar month.
             
         Returns:
             Generated markdown content as string.

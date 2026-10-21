@@ -3,6 +3,35 @@
 Record meaningful project changes here, newest first. Each entry explains what
 changed, why, and where to find the design, usage, and implementation details.
 
+## 2026-10-21 — Publish completed months on the 1st
+
+### Overview
+
+The monthly pipeline now runs on the 1st of each month at 6:00 AM Pacific,
+using `America/Los_Angeles` to adjust automatically between PDT and PST. It
+runs `publish --last-month`, then `backfill`. The 28th–31st schedule and
+last-day-of-month check have been removed.
+
+`--last-month` now selects the previous calendar month rather than the
+second-newest month present in analysis data. It works when no current-month
+data exists and fails instead of publishing another month when the intended
+month has no analysis data. The workflow's process timezone is also Pacific.
+
+### Why
+
+Running after month-end includes the completed month and allows a single cron
+trigger without special handling for different month lengths or leap years.
+
+### Validation and pointers
+
+- `make test-ci`: all 285 tests passed on Python 3.12.9, including missing
+  current-month data, missing target data, leap years, and January rollover.
+- Both the default report dry-run and `publish --dry-run --last-month`
+  completed locally; the latter selected September 2026 on October 21, 2026.
+- [Workflow](../.github/workflows/monthly-pipeline.yml),
+  [CLI usage](../README.md#github-actions), and
+  [month selection implementation](../src/publish/publisher.py).
+
 ## 2026-10-21 — Defer workout-level deduplication in DDU
 
 ### Decision

@@ -6,7 +6,7 @@ This document describes what the generated monthly report looks like.
 
 The `publish` command generates a draft markdown wrap-up post for a single month.
 
-The report is built from each source's monthly analysis data and includes the latest available month across the initialized sources, unless `--last-month` is used.
+The report is built from each source's monthly analysis data and includes the latest available month across the initialized sources. With `--last-month`, it includes the previous calendar month instead, requiring analysis data for that month.
 
 ## Output Format
 

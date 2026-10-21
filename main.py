@@ -191,7 +191,7 @@ def cmd_publish(dry_run: bool = False, skip_sync_analysis: bool = False, last_mo
     Args:
         dry_run: If True, validate config and sync data but skip actual publish.
         skip_sync_analysis: If True, reuse current analysis data without rerunning sync/analyze.
-        last_month: If True, publish the summary for the previous month.
+        last_month: If True, publish the summary for the previous calendar month.
     """
     if dry_run:
         print("=== DRY RUN MODE ===")
@@ -1338,7 +1338,7 @@ def main():
     publish_parser.add_argument(
         "--last-month",
         action="store_true",
-        help="Publish the report for the last month instead of the latest"
+        help="Publish the report for the previous calendar month instead of the latest available month"
     )
     
     args = parser.parse_args()
