@@ -218,8 +218,59 @@ Letterboxd analysis writes:
 
 ### Apple Health
 
-- Imports workouts from `export.xml`
+- Sync discovers every `files/apple_health/actions/batches/*.json` archive under
+  the configured storage root. `json_importer.py` validates schema and normalization
+  version 1, raw/normalized consistency, UUIDs, finite quantities, and date provenance.
+  `importer.py` retains explicit XML file import for restoring a historical baseline;
+  routine sync never discovers or reads XML.
+- Workout UUIDs are case-insensitive. They must be stable across exports; their
+  originating UUID namespace does not need to be HealthKit's. `duration_seconds`
+  maps from DDU's `duration`, while `energy_burned.value` maps to total kcal, per
+  the user's confirmed measurement policy. `elapsed_seconds` remains separate.
+- Immutable batch byte fingerprints avoid reparsing unchanged archives. Only new
+  snapshots and held UUIDs are replayed from retained observations, using receipt
+  time for precedence. Missing optional fields retain older measurements and their
+  field-level provenance. Equal-time conflicts are held until a later snapshot
+  resolves the conflicting fields. Older files cannot overwrite newer observations.
+- A persisted UUID alias resolves subsequent imports directly. Otherwise legacy
+  matching searches only rows at or after `2026-08-01T00:00:00-07:00`, comparing
+  activity, source, start/end minute windows, agreement with either JSON duration
+  or elapsed time (within one second of XML's rounded duration), and compatible
+  offsets. Elapsed time is identity evidence only: XML durations are preserved,
+  and new JSON rows still use `duration`. Coverage flags matched non-walk rows
+  whose XML duration differs from JSON duration. Nearby candidates without a unique,
+  fully supported match are held. One legacy row cannot be claimed by two UUIDs;
+  JSON-only rows are never fuzzy-matched to other UUIDs.
+- Matched XML rows keep their IDs, precise timestamps, durations, and nonmissing
+  measurements. JSON can fill missing active calories, total calories, average
+  heart rate, and source. New JSON rows keep absent measurements null. Complete
+  envelopes preserve device information, extra measurements, and uploader warnings.
+- First migration uses SQLite backup to preserve an existing database in
+  `data/.backups/apple_health.db.pre-json-v1.sqlite3`. All validated batch writes,
+  observations, projections, aliases, and outcomes share one SQLite transaction.
+  Invalid batches are not persisted; valid batches may remain pending if an
+  observation needs review. The CLI reports failure when any input is invalid or
+  unresolved, while retaining valid imported data. Intentional pre-cutoff skips
+  have a separate `skipped` status and do not fail sync or retry until a new
+  snapshot or explicit alias arrives. No source data is deleted.
 - Monthly analysis is the source of truth for the published workout section and `workouts.yaml`
+- Analysis preserves the existing UTC month grouping and walk exclusion, and
+  rebuilds derived rows so corrected workout dates cannot leave stale months.
+
+Inspect held observations without exposing whole payloads:
+
+```sql
+SELECT identifier, reason FROM json_import_state WHERE status != 'imported';
+SELECT batch_id, status FROM json_batches WHERE status != 'imported';
+```
+
+Pending observations retry automatically. To resolve an identity ambiguity, review
+the retained envelopes and baseline first, then explicitly insert a confirmed
+`json_workout_aliases` mapping with `origin = 'xml'` for an existing baseline row.
+There is no automatic historical backfill before August 2026. Restoring a baseline
+through `AppleHealthImporter.import_from_file(Path('.../export.xml'))` is an
+explicit recovery operation and must precede JSON replay on a fresh database.
+See `docs/design/AH_JSON.md` for the agreed scope and audited coverage.
 
 ### Blog
 
@@ -375,6 +426,15 @@ Analysis fields:
 Data tables:
 
 - `workouts`
+- `json_batches`: immutable batch ID, byte SHA-256, receipt timestamp, archive
+  reference, full envelope JSON, observation count, and imported/pending/excluded status.
+- `json_observations`: unique `(batch_id, identifier)` snapshots used to rebuild
+  each UUID's accepted view, indexed by identifier.
+- `json_workout_aliases`: UUID primary key, unique canonical workout ID foreign
+  key, and `xml`/`json` origin. XML IDs are preserved verbatim.
+- `json_import_state`: per-UUID status/reason plus the last accepted receipt,
+  merged snapshot, and per-field batch provenance. A held later observation does
+  not erase the previously accepted snapshot or published row.
 
 Analysis fields:
 

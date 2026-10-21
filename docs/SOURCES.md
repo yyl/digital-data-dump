@@ -122,7 +122,8 @@ Strong remains available as a standalone source, but published workout output no
 
 ## Apple Health
 
-Imports workouts from Apple Health `export.xml`.
+Imports workout summaries archived by `digital-data-uploader` as JSON in
+`digital-data-vault`. Existing XML-derived database entries are preserved.
 
 **Commands**
 - `apple-health-sync`
@@ -131,7 +132,32 @@ Imports workouts from Apple Health `export.xml`.
 **Required in `.env`**
 - None
 
-Place `export.xml` in `<storage-root>/files/` or in an extracted Apple Health export folder under it.
+Place or update the immutable DDU archives in
+`<storage-root>/files/apple_health/actions/batches/*.json`, then run
+`uv run main.py apple-health-analyze` to import and recompute monthly totals.
+Sync reads local files; update the vault checkout before running it. XML is not
+automatically imported by these commands.
+
+Workout UUIDs deduplicate overlapping uploads across all dates. Matching against
+existing XML-derived rows is limited to workouts starting August 1, 2026 onward
+(midnight in America/Los_Angeles). Older workouts without a saved UUID mapping
+are skipped and flagged. Ambiguous matches and unresolved dates are held for
+review instead of creating another workout. Ambiguous matches, unresolved dates,
+or invalid files cause the source command to fail visibly; intentional pre-cutoff
+skips are reported without failing sync. Valid observations already imported
+remain saved for a later retry.
+
+The confirmed mappings use `duration` for workout duration and `energy_burned`
+for total calories. The importer reports missing measurements; maximum heart
+rate, source version, creation date, and detailed Health samples are unavailable
+from JSON. Richer existing XML values are retained. The known synthetic uploader
+test batch is explicitly excluded.
+
+Before its first JSON migration, an existing database is backed up to
+`<storage-root>/data/.backups/apple_health.db.pre-json-v1.sqlite3`. Keep the
+historical database/XML and import state: the current JSON archives alone cannot
+rebuild the historical dataset. `uv run main.py status` shows archive and import
+state counts. The technical review queries are documented in `src/README.md`.
 
 Apple Health is the source used for published workout metrics and `workouts.yaml`.
 

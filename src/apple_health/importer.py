@@ -1,4 +1,4 @@
-"""Apple Health XML importer with auto-discovery."""
+"""Apple Health JSON sync with an explicit legacy XML baseline reader."""
 
 from __future__ import annotations
 
@@ -94,7 +94,7 @@ class WorkoutRecord:
 
 
 class AppleHealthImporter:
-    """Imports workout data from Apple Health export.xml files."""
+    """Imports DDU archives; retains explicit XML import for historical baselines."""
 
     def __init__(self, db: Optional[AppleHealthDatabase] = None):
         """Initialize importer."""
@@ -119,8 +119,11 @@ class AppleHealthImporter:
         )
         return xml_files[0] if xml_files else None
 
-    def import_from_file(self, xml_path: Path) -> Dict[str, int]:
-        """Import Apple Health workouts from an export.xml file."""
+    def import_from_file(self, xml_path: Path) -> Dict[str, Any]:
+        """Import a JSON archive or explicitly restore a legacy XML baseline."""
+        if xml_path.suffix.lower() == '.json':
+            from .json_importer import AppleHealthJSONImporter
+            return AppleHealthJSONImporter(self.db).import_files([xml_path])
         self.db.init_tables()
         self._validate_xml_input(xml_path)
         workouts, samples = self._parse_export(xml_path)
@@ -128,17 +131,25 @@ class AppleHealthImporter:
         saved = self.db.save_workouts([workout.to_db_row() for workout in workouts])
         return {"workouts": saved}
 
-    def sync(self) -> Dict[str, int]:
-        """Auto-discover and import the latest Apple Health export."""
-        xml_file = self.find_latest_export()
-        if not xml_file:
-            print("Error: No Apple Health export.xml file found in files/")
-            print("  Expected: files/export.xml or files/*/export.xml")
-            return {"workouts": 0}
-
-        print(f"Found export: {xml_file.relative_to(Config.FILES_DIR.parent)}")
-        stats = self.import_from_file(xml_file)
-        print(f"Imported {stats['workouts']} Apple Health workouts")
+    def sync(self) -> Dict[str, Any]:
+        """Import all immutable JSON archives without reading XML."""
+        from .json_importer import AppleHealthJSONImporter
+        importer = AppleHealthJSONImporter(self.db)
+        paths = importer.find_archives()
+        if not paths:
+            print('No Apple Health JSON archives found in files/apple_health/actions/batches/')
+        stats = importer.import_files(paths)
+        for key in ('files_scanned', 'unchanged_batches', 'observations', 'unique_uuids', 'duplicates',
+                    'inserted', 'updated', 'unchanged', 'matched', 'excluded', 'skipped', 'pending', 'invalid_batches'):
+            print(f'  {key}: {stats[key]}')
+        for key, value in stats['coverage'].items():
+            print(f'  coverage.{key}: {value}')
+        for error in stats['errors']:
+            print(f"  Error: {error['file']}: {error['reason']}")
+        if stats['skipped']:
+            print('  Pre-cutoff workouts were skipped by policy; recorded in json_import_state.')
+        if stats['pending']:
+            print('  Attention required: inspect json_import_state for held workout identifiers and reasons.')
         return stats
 
     def get_status(self) -> Dict[str, Any]:
@@ -147,10 +158,15 @@ class AppleHealthImporter:
             self.db.init_tables()
             return {
                 "database_stats": self.db.get_stats(),
-                "latest_export": self.find_latest_export(),
+                "archive_count": len(self.find_json_archives()),
             }
         except Exception as exc:
             return {"error": str(exc)}
+
+    @staticmethod
+    def find_json_archives() -> List[Path]:
+        from .json_importer import AppleHealthJSONImporter
+        return AppleHealthJSONImporter.find_archives()
 
     def _validate_xml_input(self, xml_path: Path) -> None:
         """Fail fast with clearer errors for common non-XML inputs."""
@@ -409,6 +425,9 @@ def _convert_heart_rate(value: Optional[str], unit: Optional[str]) -> Optional[f
 def _normalize_activity_type(raw_activity_type: str) -> str:
     """Normalize HealthKit workout activity names for display/grouping."""
     value = raw_activity_type.replace("HKWorkoutActivityType", "")
+    if any(char.isspace() for char in value):
+        normalized = ' '.join(value.lower().split())
+        return ACTIVITY_TYPE_ALIASES.get(normalized, normalized)
     words: List[str] = []
     current = []
     for char in value:

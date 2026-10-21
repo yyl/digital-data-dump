@@ -17,6 +17,8 @@ If you want the report format and layout, see [docs/SUMMARY.md](docs/SUMMARY.md)
 
 If you want developer and implementation details, see [src/README.md](src/README.md).
 
+For a history of changes and their rationale, see [docs/JOURNAL.md](docs/JOURNAL.md).
+
 ## Setup
 
 ```bash
@@ -46,6 +48,8 @@ uv run main.py <command>
 | `backfill` | Refresh analysis and regenerate blog activity YAML files |
 | `status` | Show current sync status |
 | `workflowy-sync` | Sync a full Workflowy node export into the local mirror |
+| `apple-health-sync` | Import local DDU Apple Health JSON archives, preserving existing history |
+| `apple-health-analyze` | Import Apple Health JSON archives and recompute monthly workout metrics |
 | `{source}-sync` | Sync one source |
 | `{source}-analyze` | Analyze one source |
 

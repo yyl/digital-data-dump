@@ -108,6 +108,13 @@ Shows:
 
 This section is sourced from Apple Health analysis.
 
+Apple Health JSON uses the confirmed workout `duration` and `energy_burned`
+(total kcal) mappings. Existing XML-derived measurements are preserved. Walks
+remain excluded, and months follow the existing UTC grouping. Missing calorie
+measurements contribute nothing to the existing sum; sync reports their coverage
+so a partial total is not mistaken for complete measurement coverage. Observations
+held for identity or timestamp review are not added to workout rows or totals.
+
 ### Writing
 
 Shows:

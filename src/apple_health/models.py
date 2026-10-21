@@ -41,6 +41,38 @@ RAW_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_apple_health_workouts_activity_type ON workouts(activity_type);",
 ]
 
+JSON_TABLES = [
+    """CREATE TABLE IF NOT EXISTS json_batches (
+        batch_id TEXT PRIMARY KEY,
+        content_hash TEXT NOT NULL,
+        received_at TEXT NOT NULL,
+        archive_path TEXT NOT NULL,
+        envelope_json TEXT NOT NULL,
+        workout_count INTEGER NOT NULL,
+        status TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS json_observations (
+        batch_id TEXT NOT NULL REFERENCES json_batches(batch_id),
+        identifier TEXT NOT NULL,
+        snapshot_json TEXT NOT NULL,
+        PRIMARY KEY (batch_id, identifier)
+    )""",
+    """CREATE TABLE IF NOT EXISTS json_workout_aliases (
+        identifier TEXT PRIMARY KEY,
+        workout_id TEXT NOT NULL UNIQUE REFERENCES workouts(id),
+        origin TEXT NOT NULL CHECK (origin IN ('xml', 'json'))
+    )""",
+    """CREATE TABLE IF NOT EXISTS json_import_state (
+        identifier TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        reason TEXT,
+        received_at TEXT,
+        snapshot_json TEXT,
+        provenance_json TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_json_observations_identifier ON json_observations(identifier)",
+]
+
 ANALYSIS_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_apple_health_analysis_year_month ON analysis(year, month);",
 ]

@@ -1,0 +1,64 @@
+# Change journal
+
+Record meaningful project changes here, newest first. Each entry explains what
+changed, why, and where to find the design, usage, and implementation details.
+
+## 2026-10-21 — Apple Health JSON imports
+
+### Overview
+
+Apple Health sync now reads all immutable JSON batches produced by
+digital-data-uploader (DDU) in digital-data-vault (DDV), instead of discovering
+the latest XML export. Existing XML-derived workout rows and richer measurements
+are preserved; explicit XML import remains available for historical recovery.
+
+The importer deduplicates overlapping uploads by case-insensitive workout UUID,
+persists aliases to existing rows, and records batch fingerprints, snapshots,
+field provenance, and review outcomes. Older uploads cannot replace newer
+observations, and missing optional fields do not erase existing measurements.
+Unchanged archives and completed UUIDs bypass repeated processing.
+
+Cross-format matching is limited to workouts starting August 1, 2026 onward
+(midnight in America/Los_Angeles). Earlier workouts without an alias are flagged
+as deliberate skips without blocking sync. Ambiguous identities, invalid files,
+and unresolved dates still require attention. The known synthetic test batch is
+explicitly excluded, and an existing database is backed up before migration.
+
+New JSON rows use `duration` for workout duration and `energy_burned` for total
+calories. Real overlap revealed six workouts whose XML duration instead agrees
+with JSON `elapsed_time`; either agreement can support identity matching, while
+matched rows retain their original XML durations. These differences remain
+visible in coverage reporting. Monthly analysis also removes stale derived
+months when a corrected workout date moves between months.
+
+### Why
+
+DDU automates phone uploads and archives JSON summaries, while the previous D3
+importer required manual XML exports. Supporting these rolling uploads keeps
+workout reporting current without duplicating sessions or discarding the richer
+historical data. The cutoff bounds legacy reconciliation work, and persistent
+aliases make later syncs direct lookups.
+
+### Validation and first live sync
+
+- `make test-ci`: all 283 tests passed on the pinned Python 3.12.9 runtime.
+- The live archives contained 110 real observations representing 100 unique
+  workouts. Ten repeated observations were deduplicated; one synthetic workout
+  was excluded separately.
+- Imported 11 new workouts, matched 64 existing XML rows, and deliberately
+  skipped 25 pre-cutoff workouts. No invalid batches or unresolved matches remain.
+- All 960 historical rows and 53 historical monthly totals remained unchanged;
+  DDV now contains 971 workouts. SQLite integrity and foreign-key checks passed.
+- A repeat sync made no workout changes. Monthly analysis and the report dry-run
+  completed; no report was published.
+
+### Quick pointers
+
+- [Design and reconciliation decisions](design/AH_JSON.md)
+- [Source setup, archive location, and backup behavior](SOURCES.md#apple-health)
+- [Implementation and database state](../src/README.md#apple-health)
+- [JSON reader, deduplication, and matching](../src/apple_health/json_importer.py)
+- [Import and replay regression tests](../tests/test_apple_health_json_importer.py)
+- Run `uv run main.py apple-health-analyze` after updating the vault checkout to
+  sync local archives and refresh monthly analysis.
+- Run `uv run main.py publish --dry-run` to inspect the current report locally.

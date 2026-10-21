@@ -57,6 +57,9 @@ class AppleHealthAnalytics:
             )
             rows = cursor.fetchall()
             updated_at = utc_now_iso()
+            # A newer snapshot can move a workout to another month. Analysis is
+            # derived state, so remove months no longer represented by workouts.
+            cursor.execute('DELETE FROM analysis')
 
             for row in rows:
                 if not row["year"] or not row["month"]:

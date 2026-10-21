@@ -617,11 +617,13 @@ def cmd_strong_analyze():
 
 
 def cmd_apple_health_sync():
-    """Import Apple Health workout data from export.xml."""
+    """Import Apple Health workouts from immutable DDU JSON archives."""
     from src.apple_health.importer import AppleHealthImporter
 
     importer = AppleHealthImporter()
-    importer.sync()
+    stats = importer.sync()
+    if not stats['success']:
+        raise RuntimeError('Apple Health JSON sync requires attention; see the import summary and json_import_state.')
 
 
 def cmd_apple_health_analyze():
@@ -1094,9 +1096,7 @@ def cmd_status():
         else:
             for entity, count in status.get("database_stats", {}).items():
                 print(f"  {entity}: {count}")
-            latest = status.get("latest_export")
-            if latest:
-                print(f"  latest_export: {latest.name}")
+            print(f"  json_archives: {status.get('archive_count', 0)}")
 
         db = AppleHealthDatabase()
         if db.exists():

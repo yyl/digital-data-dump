@@ -1,11 +1,12 @@
 """SQLite database manager for Apple Health workout data."""
 
 import sqlite3
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..config import Config
 from ..database import BaseDatabase
-from .models import RAW_TABLES, RAW_INDEXES
+from .models import RAW_TABLES, RAW_INDEXES, JSON_TABLES
 
 
 class AppleHealthDatabase(BaseDatabase):
@@ -14,6 +15,28 @@ class AppleHealthDatabase(BaseDatabase):
     def __init__(self, db_path: Optional[str] = None):
         """Initialize database manager."""
         super().__init__(db_path or str(Config.APPLE_HEALTH_DATABASE_PATH))
+        self.use_foreign_keys = True
+
+    def init_json_tables(self) -> None:
+        """Back up an existing database once before adding JSON import state."""
+        with self.get_connection() as conn:
+            migrated = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'json_batches'"
+            ).fetchone()
+            has_workouts = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workouts'"
+            ).fetchone()
+            if not migrated and has_workouts:
+                path = Path(self.db_path)
+                backup = path.parent / '.backups' / f'{path.name}.pre-json-v1.sqlite3'
+                backup.parent.mkdir(parents=True, exist_ok=True)
+                if not backup.exists():
+                    with sqlite3.connect(str(backup)) as destination:
+                        conn.backup(destination)
+        self.init_tables()
+        with self.get_connection() as conn:
+            for statement in JSON_TABLES:
+                conn.execute(statement)
 
     def init_tables(self) -> None:
         """Create raw sync tables if they do not exist."""
@@ -93,4 +116,17 @@ class AppleHealthDatabase(BaseDatabase):
                 stats["analysis"] = cursor.fetchone()[0]
             except sqlite3.OperationalError:
                 pass
+            if cursor.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = 'json_batches'"
+            ).fetchone():
+                for row in cursor.execute("SELECT status, COUNT(*) FROM json_batches GROUP BY status"):
+                    stats[f"json_batches_{row[0]}"] = row[1]
+                stats['json_aliases'] = cursor.execute(
+                    'SELECT COUNT(*) FROM json_workout_aliases'
+                ).fetchone()[0]
+                for row in cursor.execute(
+                    "SELECT status, reason, COUNT(*) FROM json_import_state "
+                    "WHERE status != 'imported' GROUP BY status, reason"
+                ):
+                    stats[f"json_{row[0]}_{row[1]}"] = row[2]
             return stats
