@@ -3,6 +3,113 @@
 Record meaningful project changes here, newest first. Each entry explains what
 changed, why, and where to find the design, usage, and implementation details.
 
+## 2026-10-25 — Sanitize GitHub activity failures
+
+Implementation commit: `a746a7c` — `feat: track private GitHub activity with
+separate visibility metrics`. This commit includes the private activity and
+metric-definition changes described below, plus the reviewed log-sanitization fix.
+
+### Why
+
+Code review reproduced a private repo name leaking through a failed commit API
+request: `requests.HTTPError` included the full private URL, which reached the
+public monthly workflow's traceback. Normal progress messages and report detail
+filtering were already anonymized, but error output needed its own boundary.
+
+### Change
+
+`GitHubSyncManager.sync()` now replaces escaping failures with `GitHubSyncError`.
+It exposes only fixed diagnostic categories/advice and a validated numeric HTTP
+status, with no original exception text, response body, headers, or request URL.
+The original exception chain is suppressed so standard traceback and
+`logging.exception` output cannot reveal it. Protection includes discovery,
+pagination, stale public metadata leading to a private error URL, transport
+failures, malformed responses, and database errors. The empty-repo 409 check also
+guards invalid JSON and non-object bodies while preserving failure status.
+
+Errors remain failures: publishing and backfill stop; bulk analysis prints the
+sanitized GitHub failure and continues its other sources. No metric formula or
+historical-counting rule changes. This does not redact custom debugging that
+explicitly dumps raw objects/frame locals, or publishing-target information from
+the separate publishing client.
+
+### Validation and pointers
+
+- `make test-ci`: all 341 tests passed on Python 3.12.9, including 40 new
+  log/error-path cases. An independent follow-up review found no remaining
+  practical bypass in the normal activity CLI/logging paths; extra probes for
+  nested exception causes and unsafe error/status formatting also stayed redacted.
+- [Logging contract](../src/README.md#github-metric-definitions),
+  [sanitization boundary](../src/github/sync.py), and
+  [error-path regressions](../tests/test_github_log_security.py).
+- Regression coverage checks stdout, stderr, standard exception logging, a real
+  uncaught CLI subprocess, and caught bulk-analysis output for private repo names,
+  commit messages/SHAs, token text, and URLs. It also confirms failures prevent
+  publishing and do not masquerade as empty activity.
+
+## 2026-10-25 — GitHub private activity and metric definitions
+
+### Overview
+
+GitHub activity sync now prefers a separate read-only `CODEBASE_GITHUB_TOKEN`,
+with `BLOG_GITHUB_TOKEN` retained as a legacy fallback. Discovery combines owned
+public repos with token-accessible owned private repos and continues to exclude
+forks, organization-owned repos, and collaborator repos. Raw commits retain
+their repo identity, visibility, and discovery state.
+
+Monthly analysis now calculates `public_commits`, `private_commits`,
+`public_repos_touched`, and `private_repos_touched`. Markdown shows nested
+Public/Private counts with independent MoM/YoY comparisons. Private repo names,
+links, and commit messages stay out of reports. Activity YAML adds the four split
+fields and keeps `commits` and `repos_touched` as combined totals.
+
+### Why and effect on existing metrics
+
+The previous public-only counts omitted private work. Simply including that work
+in the old totals would hide the change in what those numbers measure. The split
+makes the two populations visible while preserving existing export keys.
+
+This changes metric meaning and historical data, beyond report formatting:
+
+- Combined totals now include stored private activity. Existing blog charts that
+  read the old keys will show combined counts until their templates use the new
+  fields; adding YAML fields does not update those chart templates.
+- Newly accessible private repo history can increase old monthly totals and
+  alter comparison baselines. Counts are limited by the token's selected repos.
+- Visibility is the latest observed repo visibility, not visibility at commit
+  time. A visibility change moves that repo's stored history between groups on
+  reanalysis. Missing repos retain their last known group and counts but have
+  their details hidden.
+- Months follow the author timestamp's calendar month, with no local timezone
+  conversion. Counts use globally deduplicated SHAs and default-branch history;
+  they are not GitHub contribution-graph counts or complete all-branch activity.
+- Sync migrates raw tables. Analysis migrates the four monthly fields and
+  recomputes all months present in raw data. Unknown legacy splits stay null
+  until recomputation; reports keep combined totals in the meantime.
+
+The technical guide now contains the current definitions and a maintenance
+checklist: update definitions, record a dated journal entry, explain historical
+and compatibility effects, and add regression coverage with each metric change.
+There is no stored metric-definition version or repository-scope snapshot;
+reproducing older results requires the matching code and data snapshots.
+
+### Validation and pointers
+
+- Implementation validation: `make test-ci` passed all 301 tests on Python 3.12.9.
+  Fixtures cover distinct repo counts, separate comparison baselines, zero/missing
+  data, privacy filtering, visibility changes, repeat syncs, and legacy migration.
+- `publish --dry-run` completed locally. A separate fixture preview exercised the
+  new split layout; the existing local analysis still rendered its legacy
+  combined counts until recalculation. These checks are not a live private-repo
+  coverage audit, and no report was published.
+- [Calculation rules and limits](../src/README.md#github-metric-definitions),
+  [source/token setup](SOURCES.md#github),
+  [report layout](SUMMARY.md#code), and
+  [regression fixtures](../tests/test_github_private_activity.py).
+- Run `uv run main.py github-analyze`, then `uv run main.py publish --dry-run` to
+  populate the split and inspect the report. Publishing/backfill remain separate
+  actions; recomputing local analysis does not update committed posts or charts.
+
 ## 2026-10-21 — Publish completed months on the 1st
 
 ### Overview
