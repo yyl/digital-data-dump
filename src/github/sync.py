@@ -1,9 +1,38 @@
 """Sync manager for GitHub activity data."""
 
 from typing import Optional, Dict, Any
+import sqlite3
+import requests
 
 from .database import GitHubDatabase
 from .api_client import GitHubActivityClient
+
+
+class GitHubSyncError(RuntimeError):
+    """An activity-sync failure safe to display in public logs."""
+
+    @classmethod
+    def from_exception(cls, error: Exception) -> "GitHubSyncError":
+        """Keep only allowlisted diagnostics, never remote exception text/data."""
+        if isinstance(error, requests.exceptions.HTTPError):
+            response = error.response
+            status = response.status_code if response is not None else None
+            category = f"HTTP {status}" if type(status) is int and 100 <= status <= 599 else "HTTP error"
+            advice = "Check CODEBASE_GITHUB_TOKEN access and Contents: read permission."
+        elif isinstance(error, requests.exceptions.Timeout):
+            category, advice = "timeout", "Retry the sync."
+        elif isinstance(error, requests.exceptions.ConnectionError):
+            category, advice = "connection error", "Check connectivity and retry the sync."
+        elif isinstance(error, requests.exceptions.RequestException):
+            category, advice = "request error", "Check connectivity and activity-token access."
+        elif isinstance(error, sqlite3.Error):
+            category, advice = "database error", "Check local database access."
+        elif isinstance(error, (ValueError, TypeError, KeyError, AttributeError)):
+            category = "invalid response or configuration"
+            advice = "Check CODEBASE_USERNAME and CODEBASE_GITHUB_TOKEN, then retry."
+        else:
+            category, advice = "unexpected error", "Check activity configuration and retry."
+        return cls(f"GitHub activity sync failed ({category}). {advice}")
 
 
 class GitHubSyncManager:
@@ -24,17 +53,31 @@ class GitHubSyncManager:
         self.api = api or GitHubActivityClient()
     
     def sync(self) -> Dict[str, Any]:
-        """Fetch commits from all owned public repos and upsert into database.
+        """Fetch commits from owned public and accessible private repos.
         
         Uses incremental sync: for each repo, only fetches commits newer
         than the latest already stored.
         
         Returns:
             Dictionary with sync statistics.
+
+        Raises:
+            GitHubSyncError: A sanitized failure without repo or request details.
         """
+        try:
+            return self._sync()
+        except Exception as error:
+            # This also covers discovery, parsing, and later pagination failures.
+            # Suppress the original chain so CLI/logging tracebacks cannot expose
+            # private URLs, response bodies, request headers, or exception text.
+            raise GitHubSyncError.from_exception(error) from None
+
+    def _sync(self) -> Dict[str, Any]:
+        """Perform the sync inside the public error-sanitization boundary."""
         self.db.init_tables()
         
-        repos = self.api.get_public_repos()
+        repos = self.api.get_owned_repos()
+        self.db.update_repo_visibility(repos)
         
         total_commits = 0
         repos_with_commits = 0
@@ -78,6 +121,7 @@ class GitHubSyncManager:
                     "message": first_line,
                     "author_date": author_date,
                     "date_month": date_month,
+                    "is_private": repo_data.get("private", True),
                 }
                 
                 if commit["sha"]:
@@ -98,7 +142,8 @@ class GitHubSyncManager:
             if count > 0:
                 repos_with_commits += 1
                 total_commits += count
-                print(f"  {repo_name}: {count} commits")
+                label = "Private repository" if repo_data.get("private", True) else repo_name
+                print(f"  {label}: {count} commits")
         
         print(f"Synced {total_commits} commits from {repos_with_commits} repos")
         return {"commits": total_commits, "repos": repos_with_commits}

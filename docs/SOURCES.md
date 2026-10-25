@@ -190,7 +190,8 @@ Tracks finished books from Hardcover.
 
 ## GitHub
 
-Tracks commit activity from your public repositories.
+Tracks your authored commits on the default branch of owned, non-fork public
+repositories and private repositories accessible to your activity token.
 
 **Commands**
 - `github-sync`
@@ -198,9 +199,36 @@ Tracks commit activity from your public repositories.
 
 **Required in `.env`**
 - `CODEBASE_USERNAME`
-- `BLOG_GITHUB_TOKEN`
+- `CODEBASE_GITHUB_TOKEN` (preferred), or `BLOG_GITHUB_TOKEN` as a legacy fallback
 
-The GitHub token is reused for authenticated API access.
+Use a separate fine-grained personal access token for activity sync, belonging to
+the account in `CODEBASE_USERNAME`. Grant **Contents: read-only** and
+**Metadata: read-only** for the private repositories you want counted. Public
+repositories remain readable without selecting them. Select **All repositories**
+to include future repositories automatically, or select individual private repos
+and update that selection as needed. Publishing tokens retain their separate
+write permissions.
+
+```dotenv
+CODEBASE_USERNAME=your_github_username
+CODEBASE_GITHUB_TOKEN=your_read_only_activity_token
+```
+
+Run `uv run main.py github-analyze` to sync accessible history and recalculate
+monthly public/private counts and their historical comparisons. Repeated runs
+fetch incrementally. Private activity contributes to its own counts; its
+repository names, links, and commit messages are excluded from
+published reports. The local `github.db` still contains those details and belongs
+in your private data repository.
+
+For the monthly GitHub Actions pipeline, add `CODEBASE_GITHUB_TOKEN` as a
+repository Actions secret alongside `CODEBASE_USERNAME`. Only repositories owned
+by that user are included; organization and collaborator repositories and forks
+remain excluded.
+
+For what the counts include and how repository visibility or token access can
+affect historical values, see the
+[GitHub metric definitions](../src/README.md#github-metric-definitions).
 
 ## Oura Ring
 

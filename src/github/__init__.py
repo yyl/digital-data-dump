@@ -1,1 +1,1 @@
-# GitHub public activity tracking.
+# GitHub public and private activity tracking.

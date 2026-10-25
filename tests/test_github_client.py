@@ -42,6 +42,7 @@ class TestGitHubActivityClient(unittest.TestCase):
         # Mock Config
         self.config_patcher = patch("src.github.api_client.Config")
         self.mock_config = self.config_patcher.start()
+        self.mock_config.CODEBASE_GITHUB_TOKEN = ""
         self.mock_config.BLOG_GITHUB_TOKEN = "test_token"
         self.mock_config.CODEBASE_USERNAME = "test_user"
 
@@ -68,6 +69,15 @@ class TestGitHubActivityClient(unittest.TestCase):
             self.assertEqual(client.token, "custom_token")
             self.assertEqual(client.username, "custom_user")
             self.assertEqual(client.session.headers["Authorization"], "Bearer custom_token")
+
+    def test_activity_token_takes_precedence_over_publishing_token(self):
+        self.mock_config.CODEBASE_GITHUB_TOKEN = "read_only_token"
+        client = GitHubActivityClient()
+        self.assertEqual(client.token, "read_only_token")
+        self.assertEqual(client.session.headers["Authorization"], "Bearer read_only_token")
+
+        overridden = GitHubActivityClient(token="explicit_token")
+        self.assertEqual(overridden.token, "explicit_token")
 
     def test_init_no_token(self):
         """Test initialization without a token."""
@@ -249,6 +259,84 @@ class TestGitHubActivityClient(unittest.TestCase):
                 "/repos/owner/repo/commits",
                 params={"author": "test_user", "since": "2023-01-01T00:00:00Z"}
             )
+
+    def test_owned_discovery_preserves_public_repos_with_private_only_token(self):
+        def repo(name, private=False, fork=False, owner="test_user"):
+            return {
+                "name": name, "full_name": f"{owner}/{name}",
+                "owner": {"login": owner}, "private": private, "fork": fork,
+            }
+
+        public = repo("public")
+        private = repo("private", private=True)
+        self.client._get = MagicMock()
+        self.client._get.return_value.json.return_value = {"login": "TEST_USER"}
+        self.client._paginate = MagicMock(side_effect=[
+            [public],
+            [private, repo("fork", private=True, fork=True), repo("other", owner="other")],
+        ])
+
+        self.assertEqual(self.client.get_owned_repos(), [public, private])
+        self.client._get.assert_called_once_with("/user")
+        self.client._paginate.assert_any_call(
+            "/user/repos",
+            params={"visibility": "all", "affiliation": "owner", "sort": "updated"},
+        )
+
+    def test_authenticated_visibility_wins_for_duplicate_repos(self):
+        public = {
+            "full_name": "test_user/repo", "owner": {"login": "test_user"},
+            "fork": False, "private": False,
+        }
+        private = {**public, "private": True}
+        self.client._get = MagicMock()
+        self.client._get.return_value.json.return_value = {"login": "test_user"}
+        self.client._paginate = MagicMock(side_effect=[[public], [private]])
+        self.assertEqual(self.client.get_owned_repos(), [private])
+
+    def test_owned_discovery_rejects_wrong_token_owner(self):
+        self.client._get = MagicMock()
+        self.client._get.return_value.json.return_value = {"login": "other_user"}
+        with patch.object(self.client, "_paginate") as paginate:
+            with self.assertRaisesRegex(ValueError, "owner must match CODEBASE_USERNAME"):
+                self.client.get_owned_repos()
+            paginate.assert_not_called()
+
+    def test_owned_discovery_paginates_both_endpoints(self):
+        def response(data, next_url=None):
+            result = MagicMock()
+            result.json.return_value = data
+            result.headers = {"Link": f'<{next_url}>; rel="next"'} if next_url else {}
+            return result
+
+        def repo(name, private):
+            return {"full_name": f"test_user/{name}", "owner": {"login": "test_user"},
+                    "private": private, "fork": False}
+
+        self.client._get = MagicMock(side_effect=[
+            response({"login": "test_user"}),
+            response([repo("public1", False)], "https://api.github.com/public?page=2"),
+            response([repo("public2", False)]),
+            response([repo("private1", True)], "https://api.github.com/private?page=2"),
+            response([repo("private2", True)]),
+        ])
+        self.assertEqual(len(self.client.get_owned_repos()), 4)
+        self.assertEqual(self.client._get.call_count, 5)
+
+    def test_empty_repo_is_skipped_but_permission_errors_propagate(self):
+        for status, message in [(409, "Git Repository is empty."), (403, "Forbidden"),
+                                (404, "Not Found"), (409, "Other conflict")]:
+            with self.subTest(status=status, message=message):
+                response = MagicMock()
+                response.status_code = status
+                response.json.return_value = {"message": message}
+                error = HTTPErrorClass(message, response=response)
+                with patch.object(self.client, "_paginate", side_effect=error):
+                    if message == "Git Repository is empty.":
+                        self.assertEqual(self.client.get_commits("test_user", "empty"), [])
+                    else:
+                        with self.assertRaises(HTTPErrorClass):
+                            self.client.get_commits("test_user", "repo")
 
     def test_get_timeout_enforced(self):
         """Test that requests.get is called with a timeout."""

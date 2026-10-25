@@ -13,6 +13,7 @@ from ..apple_health.database import AppleHealthDatabase
 from ..blog.database import BlogDatabase
 from ..hardcover.database import HardcoverDatabase
 from ..github.database import GitHubDatabase
+from ..github.models import VISIBILITY_METRICS
 from ..oura.database import OuraDatabase
 
 logger = logging.getLogger(__name__)
@@ -347,7 +348,7 @@ class DataGenerator:
             return []
         
         query = """
-        SELECT year_month, commits, repos_touched
+        SELECT *
         FROM analysis
         ORDER BY year_month ASC
         """
@@ -357,14 +358,18 @@ class DataGenerator:
                 cursor.execute(query)
                 rows = cursor.fetchall()
             
-            return [
-                {
-                    'month': dict(row)['year_month'],
-                    'commits': dict(row)['commits'],
-                    'repos_touched': dict(row)['repos_touched'],
+            records = []
+            for row in rows:
+                stats = dict(row)
+                record = {
+                    'month': stats['year_month'],
+                    'commits': stats['commits'],
+                    'repos_touched': stats['repos_touched'],
                 }
-                for row in rows
-            ]
+                if all(stats.get(metric) is not None for metric in VISIBILITY_METRICS):
+                    record.update({metric: stats[metric] for metric in VISIBILITY_METRICS})
+                records.append(record)
+            return records
         except Exception:
             return []
     

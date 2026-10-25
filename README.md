@@ -17,6 +17,9 @@ If you want the report format and layout, see [docs/SUMMARY.md](docs/SUMMARY.md)
 
 If you want developer and implementation details, see [src/README.md](src/README.md).
 
+For metric calculation rules and how changes are tracked, see
+[metric definitions](src/README.md#metric-definitions-and-changes).
+
 For a history of changes and their rationale, see [docs/JOURNAL.md](docs/JOURNAL.md).
 
 ## Setup

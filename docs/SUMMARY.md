@@ -136,15 +136,38 @@ Shows:
 
 Shows:
 
-- commits
-- repos touched
+- commits, split into Public and Private
+- repos touched, split into Public and Private
+
+Each visibility group has its own MoM and YoY comparison:
+
+```markdown
+- **Commits**:
+    - Public: 42 (-26% MoM, +91% YoY)
+    - Private: 42 (-26% MoM, +91% YoY)
+- **Repos Touched**:
+    - Public: 5 (-29% MoM, +150% YoY)
+    - Private: 5 (-29% MoM, +150% YoY)
+```
+
+Comparisons show `N/A` when the relevant previous period is missing or zero.
+Existing combined analysis continues to render as combined totals until
+`github-analyze` recalculates the visibility breakdown for all stored months.
 
 It also includes:
 
 - a ranked repo summary table
 - grouped commit tables
 
-Merge commits of the form `Merge pull request #...` are excluded.
+Commit and repo counts include synced private activity. Repo summaries, grouped
+commit tables, and new-repo lists show public repositories only; private repo
+names, links, and commit messages are omitted. Merge commits of the form
+`Merge pull request #...` are excluded from detail tables, while totals count all
+synced commits.
+
+For input coverage, month boundaries, exact formulas, visibility changes, and
+historical recomputation, see the
+[GitHub metric definitions](../src/README.md#github-metric-definitions).
 
 ### Sleep & Readiness
 

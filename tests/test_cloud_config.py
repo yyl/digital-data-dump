@@ -135,7 +135,7 @@ class TestConfigValidation:
 
         # Test missing token
         with patch.object(Config, 'CODEBASE_USERNAME', 'user'):
-            with patch.object(Config, 'BLOG_GITHUB_TOKEN', ''):
+            with patch.multiple(Config, CODEBASE_GITHUB_TOKEN='', BLOG_GITHUB_TOKEN=''):
                 with pytest.raises(ValueError, match="BLOG_GITHUB_TOKEN"):
                     Config.validate_github_activity()
 
@@ -144,8 +144,15 @@ class TestConfigValidation:
         from src.config import Config
 
         with patch.object(Config, 'CODEBASE_USERNAME', 'test_user'):
-            with patch.object(Config, 'BLOG_GITHUB_TOKEN', 'test_token'):
+            with patch.multiple(Config, CODEBASE_GITHUB_TOKEN='', BLOG_GITHUB_TOKEN='test_token'):
                 assert Config.validate_github_activity() is True
+
+    def test_github_activity_does_not_require_publishing_token(self):
+        from src.config import Config
+
+        with patch.multiple(Config, CODEBASE_USERNAME='test_user',
+                            CODEBASE_GITHUB_TOKEN='read_only_token', BLOG_GITHUB_TOKEN=''):
+            assert Config.validate_github_activity() is True
 
     def test_validate_schwab_with_access_token(self):
         """Test that Schwab validation passes with a direct access token."""

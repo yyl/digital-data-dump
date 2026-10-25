@@ -16,6 +16,7 @@ from ..apple_health.database import AppleHealthDatabase
 from ..blog.database import BlogDatabase
 from ..hardcover.database import HardcoverDatabase
 from ..github.database import GitHubDatabase
+from ..github.models import VISIBILITY_METRICS
 from ..oura.database import OuraDatabase
 from .github_client import GitHubClient
 from .markdown_generator import MarkdownGenerator
@@ -253,7 +254,7 @@ class Publisher:
     def _get_github_analysis(self, year_month: str) -> Optional[Dict[str, Any]]:
         """Get GitHub analysis for a specific month."""
         query = """
-        SELECT year_month, year, month, commits, repos_touched
+        SELECT *
         FROM analysis
         WHERE year_month = ?
         """
@@ -477,9 +478,10 @@ class Publisher:
         return [row['name'] for row in rows if row.get('name')]
 
     def _get_new_github_repos(self, year_month: str) -> List[str]:
-        """Get repos that appear for the first time in the given month."""
+        """Get public repos that appear for the first time in the given month."""
+        # SELECT * also supports legacy public-only databases without is_private.
         query = """
-        SELECT repo
+        SELECT *
         FROM commits
         GROUP BY repo
         HAVING MIN(date_month) = ?
@@ -492,12 +494,16 @@ class Publisher:
             check_exists=True,
             suppress_errors=True
         )
-        return [row['repo'] for row in rows if row.get('repo')]
+        return [
+            row['repo'] for row in rows
+            if row.get('repo') and not row.get('is_private', False)
+            and row.get('is_discoverable', True)
+        ]
 
     def _get_github_commits(self, year_month: str) -> List[Dict[str, Any]]:
-        """Get GitHub commits for a specific month."""
+        """Get public GitHub commit details for a specific month."""
         query = """
-        SELECT repo, message, author_date, sha
+        SELECT *
         FROM commits
         WHERE date_month = ?
           AND (
@@ -506,13 +512,17 @@ class Publisher:
           )
         ORDER BY datetime(author_date) DESC, repo ASC, sha ASC
         """
-        return self._fetch_rows(
+        rows = self._fetch_rows(
             self.github_activity_db,
             query,
             (year_month,),
             check_exists=True,
             suppress_errors=True
         )
+        return [
+            row for row in rows
+            if not row.get('is_private', False) and row.get('is_discoverable', True)
+        ]
 
     def _get_apple_health_activity_breakdown(self, year_month: str) -> List[Dict[str, Any]]:
         """Get Apple Health activity types ranked by workout count."""
@@ -864,11 +874,12 @@ class Publisher:
                 current_stats=github,
                 historical_getter=self._get_github_analysis,
                 year_month=year_month,
-                metrics=['commits', 'repos_touched']
+                metrics=['commits', 'repos_touched', *VISIBILITY_METRICS]
             )
             data['github'] = {
                 'commits': github['commits'],
                 'repos_touched': github['repos_touched'],
+                **{metric: github.get(metric) for metric in VISIBILITY_METRICS},
                 'commit_groups': self._group_commits_by_repo(
                     self._get_github_commits(year_month)
                 ),

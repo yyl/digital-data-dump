@@ -139,8 +139,9 @@ class Config:
     # GitHub Activity Configuration
     # ==========================================================================
     CODEBASE_USERNAME: str = os.getenv("CODEBASE_USERNAME", "")
+    CODEBASE_GITHUB_TOKEN: str = _env_or_default("CODEBASE_GITHUB_TOKEN")
     CODEBASE_DATABASE_PATH = DATA_DIR / "github.db"
-    # Reuses BLOG_GITHUB_TOKEN for authenticated API access (5000 req/hr)
+    # Activity uses its own read-only token, with BLOG_GITHUB_TOKEN as a legacy fallback.
     
     # ==========================================================================
     # GitHub Publishing Configuration
@@ -241,8 +242,8 @@ class Config:
         missing = []
         if not cls.CODEBASE_USERNAME:
             missing.append("CODEBASE_USERNAME")
-        if not cls.BLOG_GITHUB_TOKEN:
-            missing.append("BLOG_GITHUB_TOKEN (needed for API auth)")
+        if not cls.CODEBASE_GITHUB_TOKEN and not cls.BLOG_GITHUB_TOKEN:
+            missing.append("CODEBASE_GITHUB_TOKEN (or legacy BLOG_GITHUB_TOKEN)")
         if missing:
             raise ValueError(
                 f"Missing GitHub activity configuration: {', '.join(missing)}. "

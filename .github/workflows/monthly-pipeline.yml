@@ -108,6 +108,7 @@ jobs:
           DATA_GITHUB_TARGET_BRANCH: ${{ secrets.DATA_GITHUB_TARGET_BRANCH }}
           DATA_REPO_POSTS_DIR: ${{ secrets.DATA_REPO_POSTS_DIR }}
           CODEBASE_USERNAME: ${{ secrets.CODEBASE_USERNAME }}
+          CODEBASE_GITHUB_TOKEN: ${{ secrets.CODEBASE_GITHUB_TOKEN }}
           OURA_CLIENT_ID: ${{ secrets.OURA_CLIENT_ID }}
           OURA_CLIENT_SECRET: ${{ secrets.OURA_CLIENT_SECRET }}
           OURA_ACCESS_TOKEN: ${{ env.OURA_ACCESS_TOKEN_FILE || secrets.OURA_ACCESS_TOKEN }}

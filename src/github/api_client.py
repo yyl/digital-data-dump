@@ -1,4 +1,4 @@
-"""GitHub REST API client for fetching public activity."""
+"""GitHub REST API client for fetching public and private commit activity."""
 
 import time
 from typing import Optional, List, Dict, Any
@@ -8,7 +8,7 @@ from ..config import Config
 
 
 class GitHubActivityClient:
-    """Client for the GitHub REST API, focused on public commit activity."""
+    """Client for the GitHub REST API, focused on owned repository activity."""
     
     API_BASE = "https://api.github.com"
     
@@ -16,10 +16,11 @@ class GitHubActivityClient:
         """Initialize API client.
         
         Args:
-            token: GitHub personal access token. Defaults to BLOG_GITHUB_TOKEN.
+            token: GitHub personal access token. Defaults to CODEBASE_GITHUB_TOKEN,
+                falling back to BLOG_GITHUB_TOKEN for existing installations.
             username: GitHub username. Defaults to CODEBASE_USERNAME config.
         """
-        self.token = token or Config.BLOG_GITHUB_TOKEN
+        self.token = token or Config.CODEBASE_GITHUB_TOKEN or Config.BLOG_GITHUB_TOKEN
         self.username = username or Config.CODEBASE_USERNAME
         self.session = requests.Session()
         self.session.headers.update({
@@ -128,6 +129,36 @@ class GitHubActivityClient:
         public_repos = [r for r in repos if not r.get("fork") and not r.get("private")]
         print(f"Found {len(public_repos)} public repos (non-fork)")
         return public_repos
+
+    def get_owned_repos(self) -> List[Dict[str, Any]]:
+        """Get owned non-fork public repos plus private repos allowed by the token.
+
+        Public discovery is separate because a fine-grained token may select
+        only private repositories while still permitting public commit reads.
+        """
+        if not self.token:
+            return self.get_public_repos()
+
+        login = self._get("/user").json()["login"]
+        if login.casefold() != self.username.casefold():
+            raise ValueError(
+                "GitHub activity token owner must match CODEBASE_USERNAME. "
+                "Set CODEBASE_GITHUB_TOKEN to a personal access token for that user."
+            )
+
+        public_repos = self.get_public_repos()
+        authenticated_repos = self._paginate(
+            "/user/repos",
+            params={"visibility": "all", "affiliation": "owner", "sort": "updated"},
+        )
+        repos = {
+            repo["full_name"].casefold(): repo
+            for repo in public_repos + authenticated_repos
+            if not repo.get("fork")
+            and repo["owner"]["login"].casefold() == self.username.casefold()
+        }
+        print(f"Found {len(repos)} owned repos (non-fork, including accessible private repos)")
+        return list(repos.values())
     
     def get_commits(
         self, owner: str, repo: str, since: Optional[str] = None
@@ -146,4 +177,15 @@ class GitHubActivityClient:
         if since:
             params["since"] = since
         
-        return self._paginate(f"/repos/{owner}/{repo}/commits", params=params)
+        try:
+            return self._paginate(f"/repos/{owner}/{repo}/commits", params=params)
+        except requests.HTTPError as error:
+            response = error.response
+            if response is not None and response.status_code == 409:
+                try:
+                    data = response.json()
+                except ValueError:
+                    data = None
+                if isinstance(data, dict) and data.get("message") == "Git Repository is empty.":
+                    return []
+            raise

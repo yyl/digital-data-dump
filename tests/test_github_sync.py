@@ -34,23 +34,23 @@ class TestGitHubSyncManager:
     def test_sync_no_repos(self, manager, mock_api, mock_db):
         """Test sync when no repositories are returned."""
         # Setup
-        mock_api.get_public_repos.return_value = []
+        mock_api.get_owned_repos.return_value = []
 
         # Execute
         stats = manager.sync()
 
         # Verify
         mock_db.init_tables.assert_called_once()
-        mock_api.get_public_repos.assert_called_once()
+        mock_api.get_owned_repos.assert_called_once()
         assert stats == {"commits": 0, "repos": 0}
 
     def test_sync_repo_no_commits(self, manager, mock_api, mock_db):
         """Test sync when a repo has no new commits."""
         # Setup
-        mock_api.get_public_repos.return_value = [{
+        mock_api.get_owned_repos.return_value = [{
             "full_name": "user/repo",
             "owner": {"login": "user"},
-            "name": "repo"
+            "name": "repo", "private": False
         }]
         mock_db.get_latest_commit_date.return_value = None
         mock_api.get_commits.return_value = []
@@ -65,10 +65,10 @@ class TestGitHubSyncManager:
     def test_sync_incremental_logic(self, manager, mock_api, mock_db):
         """Test incremental sync logic (since parameter)."""
         # Setup
-        mock_api.get_public_repos.return_value = [{
+        mock_api.get_owned_repos.return_value = [{
             "full_name": "user/repo",
             "owner": {"login": "user"},
-            "name": "repo"
+            "name": "repo", "private": False
         }]
         # Previous commit was at 10:00:00
         mock_db.get_latest_commit_date.return_value = "2023-01-01T10:00:00Z"
@@ -86,10 +86,10 @@ class TestGitHubSyncManager:
 
     def test_sync_filters_existing_shas_from_inclusive_fetch(self, manager, mock_api, mock_db):
         """Test that inclusive fetches do not re-upsert commits already stored."""
-        mock_api.get_public_repos.return_value = [{
+        mock_api.get_owned_repos.return_value = [{
             "full_name": "user/repo",
             "owner": {"login": "user"},
-            "name": "repo"
+            "name": "repo", "private": False
         }]
         mock_db.get_latest_commit_date.return_value = "2023-01-01T10:00:00Z"
         mock_db.get_existing_shas.return_value = {"sha-existing"}
@@ -119,17 +119,17 @@ class TestGitHubSyncManager:
                 "repo": "user/repo",
                 "message": "fix: newly discovered sibling commit",
                 "author_date": "2023-01-01T10:00:00Z",
-                "date_month": "2023-01"
+                "date_month": "2023-01", "is_private": False
             }
         ])
 
     def test_sync_process_commits(self, manager, mock_api, mock_db):
         """Test that commits are correctly processed and upserted."""
         # Setup
-        mock_api.get_public_repos.return_value = [{
+        mock_api.get_owned_repos.return_value = [{
             "full_name": "user/repo",
             "owner": {"login": "user"},
-            "name": "repo"
+            "name": "repo", "private": False
         }]
         mock_db.get_latest_commit_date.return_value = None
 
@@ -168,14 +168,14 @@ class TestGitHubSyncManager:
                 "repo": "user/repo",
                 "message": "feat: new feature", # First line
                 "author_date": "2023-01-02T12:00:00Z",
-                "date_month": "2023-01"
+                "date_month": "2023-01", "is_private": False
             },
             {
                 "sha": "sha2",
                 "repo": "user/repo",
                 "message": "fix: bug fix", # First line
                 "author_date": "2023-01-03T12:00:00Z",
-                "date_month": "2023-01"
+                "date_month": "2023-01", "is_private": False
             }
         ]
         mock_db.upsert_commits.assert_called_with(expected_commits)

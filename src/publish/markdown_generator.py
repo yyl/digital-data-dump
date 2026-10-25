@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from urllib.parse import quote, urlparse
 
 from ..comparison import format_comparison_suffix
+from ..github.models import VISIBILITY_METRICS
 
 
 class MarkdownGenerator:
@@ -369,18 +370,29 @@ categories: ["Summary"]
     
     def _generate_github_section(self, github_data: Dict[str, Any]) -> str:
         """Generate the GitHub/Code statistics section."""
-        commits = int(github_data.get('commits', 0))
-        repos_touched = int(github_data.get('repos_touched', 0))
         comparisons = github_data.get('comparisons', {})
-        
-        commits_cmp = format_comparison_suffix(comparisons.get('commits'))
-        repos_cmp = format_comparison_suffix(comparisons.get('repos_touched'))
+        lines = []
+        if all(github_data.get(metric) is not None for metric in VISIBILITY_METRICS):
+            for title, metric in [('Commits', 'commits'), ('Repos Touched', 'repos_touched')]:
+                lines.append(f'- **{title}**:')
+                for visibility in ('public', 'private'):
+                    key = f'{visibility}_{metric}'
+                    count = int(github_data[key])
+                    suffix = format_comparison_suffix(comparisons.get(key))
+                    lines.append(f'    - {visibility.title()}: {count}{suffix}')
+        else:
+            # Old analysis has combined totals only until github-analyze reruns.
+            # Keep those totals intact rather than guessing a visibility split.
+            for title, metric in [('Commits', 'commits'), ('Repos Touched', 'repos_touched')]:
+                count = int(github_data.get(metric, 0))
+                suffix = format_comparison_suffix(comparisons.get(metric))
+                lines.append(f'- **{title}**: {count}{suffix}')
+        stats = '\n'.join(lines)
         
         return f"""
 ## Code
 
-- **Commits**: {commits}{commits_cmp}
-- **Repos Touched**: {repos_touched}{repos_cmp}
+{stats}
 {self._generate_whats_new_items(github_data.get('new_repos', []), 'new repo')}
 {self._generate_commit_groups_block(github_data.get('commit_groups', []))}
 """

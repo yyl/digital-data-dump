@@ -86,6 +86,32 @@ Each source generally follows the same structure:
 
 Raw data tables are created during sync/import setup. Derived monthly `analysis` tables are owned by each source's `analytics.py`.
 
+## Metric Definitions and Changes
+
+Keep calculation rules in this guide's per-source technical notes, starting with
+the [GitHub metric definitions](#github-metric-definitions). These rules describe
+what a number means: its input population, identity, month boundary, filters,
+formula, missing-data behavior, and whether later syncs can change past results.
+
+When changing a metric, update its definition in the same change as the code and
+record a dated entry in [the change journal](../docs/JOURNAL.md). Include:
+
+- The old and new meaning, affected database/YAML fields, and reason for changing.
+- Effects on historical values and comparisons, including migration or recomputation.
+- Compatibility with existing consumers and any limits on coverage or reproducibility.
+- Regression fixtures for the changed calculation, missing/zero data, and migration.
+
+Keep source credentials and user-facing sync setup in
+[SOURCES.md](../docs/SOURCES.md), report layout in
+[SUMMARY.md](../docs/SUMMARY.md), and command usage in the
+[main README](../README.md). Link those documents to the calculation rules rather
+than maintaining separate definitions of the same formula.
+
+The journal tracks changes in meaning; it does not freeze previously calculated
+data. Analysis rows currently store `updated_at`, not a metric-definition version
+or the token's repository selection. Reproducing an older result requires the
+matching code and data snapshots; a date in the journal alone is insufficient.
+
 ## Source Types
 
 | Type | Sources | Ingestion Path |
@@ -136,7 +162,7 @@ Current activity files:
 | `workouts.yaml` | Apple Health | `workouts`, `total_minutes`, `total_calories` |
 | `writing.yaml` | Blog | `posts`, `total_words`, `unique_tags` |
 | `books.yaml` | Hardcover | `books_finished`, `avg_rating` |
-| `code.yaml` | GitHub | `commits`, `repos_touched` |
+| `code.yaml` | GitHub | `commits`, `repos_touched` (combined), `public_commits`, `private_commits`, `public_repos_touched`, `private_repos_touched` |
 | `sleep.yaml` | Oura Ring | `median_sleep_score`, `avg_sleep_score`, `median_readiness_score`, `avg_readiness_score` |
 
 Published workout metrics come from Apple Health monthly analysis. Strong is still importable and analyzable, but it is not the published workout source.
@@ -284,9 +310,163 @@ See `docs/design/AH_JSON.md` for the agreed scope and audited coverage.
 
 ### GitHub
 
-- Syncs commit history from owned public repositories
+- Prefers `CODEBASE_GITHUB_TOKEN` for activity, falling back to `BLOG_GITHUB_TOKEN`
+- Verifies the token owner matches `CODEBASE_USERNAME`, merges public user-repo discovery with authenticated owned-repo discovery, and excludes forks
+- Syncs authored commit history on default branches from owned public and accessible private repositories
 - Uses an inclusive timestamp cursor plus SHA deduplication so same-second commits are not skipped
+- Migrates `commits.is_private` and `commits.is_discoverable` on sync and refreshes stored visibility even when no new commits exist; undiscoverable repos retain their last known visibility for counts but have their details hidden
+- Monthly analysis and activity YAML include separate public/private counts alongside combined totals; Markdown renders nested Public/Private counts with independent MoM/YoY comparisons
+- Analysis migrates existing monthly tables and recalculates all stored months; until recalculation, legacy combined totals remain available without guessing a split
+- Report detail queries exclude private and undiscoverable rows and also support legacy public-only databases
 - Publishing uses PyGithub and retries branch update races when necessary
+
+#### GitHub metric definitions
+
+Definition updated **2026-10-25**. See the
+[dated change entry](../docs/JOURNAL.md#2026-10-25--github-private-activity-and-metric-definitions)
+for the change from public-only metrics to public/private metrics.
+
+**Input population and identity**
+
+- Discover owned, non-fork repositories by combining the public user-repository
+  endpoint with authenticated owned-repository discovery. Private coverage is
+  limited to repositories allowed by the activity token. Organization-owned and
+  collaborator repositories are excluded, even when the token can read them.
+- Fetch commits with `author=CODEBASE_USERNAME` and no branch argument, so the
+  starting branch is the repository's default branch. This measures authored
+  commits in the returned history; it is not an all-branch activity count or a
+  reproduction of GitHub's contribution graph. A squash commit is one commit,
+  rather than the original branch's individual commits.
+- The raw table has a **global SHA primary key**, not `(repo, SHA)`. A SHA found
+  in multiple repositories is stored once; ordinary sync retains its existing
+  repository association. Repo counts therefore follow the association retained
+  in the database. Repositories are identified by stored `owner/name` strings,
+  not immutable repository IDs; renames/transfers have no alias reconciliation.
+- Count stored commits with a non-empty `date_month`. Sync skips entries without
+  a SHA or author timestamp. Merge commits are included in these counts.
+
+**Month and visibility**
+
+`date_month` is the first seven characters of `commit.author.date`. There is no
+local timezone conversion; a timestamp ending in `Z` uses its UTC calendar month.
+The committer timestamp, push date, and sync date do not determine the month.
+
+`is_private` is the repository's latest successfully observed visibility,
+applied to **all stored commits for that repository**, including old months.
+It does not record visibility at the time each commit was authored. If a repo
+becomes public, its stored historical activity moves to the public group on the
+next successful sync and reanalysis; the reverse applies when it becomes private.
+
+`is_discoverable` is separate from visibility. When a stored repo is absent from
+discovery, its details are hidden, but its last known visibility and stored
+activity remain in the counts. Losing token access does not erase private history
+or automatically reclassify previously public history as private.
+
+**Monthly formulas**
+
+For each `date_month`, [`github/analytics.py`](github/analytics.py) computes:
+
+| Field | Calculation over that month's stored rows |
+|-------|--------------------------------------------|
+| `commits` | `COUNT(*)` across both visibility groups |
+| `repos_touched` | `COUNT(DISTINCT repo)` across both groups |
+| `public_commits` | Number of rows with `is_private = 0` |
+| `private_commits` | Number of rows with `is_private = 1` |
+| `public_repos_touched` | Distinct `repo` values among rows with `is_private = 0` |
+| `private_repos_touched` | Distinct `repo` values among rows with `is_private = 1` |
+
+Each private repo counts independently. Six private commits across three repos
+produce `private_commits = 6` and `private_repos_touched = 3`. For normal synced
+data, the public and private commit counts sum to `commits`, and the repo counts
+sum to `repos_touched`, because sync gives every row for a repo the same visibility.
+
+A month containing commits from only one visibility group has zero counts for
+the other group. A month with no stored commits has no generated analysis row;
+missing months are not filled with zeros.
+
+**Comparisons**
+
+[`comparison.py`](comparison.py) compares each of the four visibility metrics
+with the **same metric** in the previous calendar month (MoM) and the same month
+of the previous year (YoY):
+
+```text
+percentage change = round((current - previous) / previous * 100, 1)
+```
+
+The report displays the result as a whole percentage. A missing or zero previous
+value yields `N/A`; a current value of zero with a positive baseline yields
+`-100%`. Public and private groups never use each other's baseline. Missing
+private history is not evidence that no private work occurred: granting broader
+token access can change historical baselines and percentages.
+
+**Refresh and historical changes**
+
+`github-sync` refreshes repository visibility and fetches commits inclusively
+from each repo's latest stored author timestamp. Existing SHAs are skipped, so
+same-second siblings can be added without counting existing commits twice. A
+newly discovered repo has no cursor and fetches its accessible default-branch
+history. This can add private commits to months before the feature was enabled.
+
+`github-analyze` syncs first, then recomputes and upserts **every month present
+in raw commits**, not just the newest month. Stored history and derived totals
+are therefore mutable. Sync does not reconcile deleted/unreachable commits or
+rescan below the cursor for late-arriving commits with older timestamps.
+Analysis also does not delete derived months that have lost all raw rows through
+manual database edits. Those cases require explicit reconciliation.
+
+Existing public-only raw databases gain `is_private = 0` and
+`is_discoverable = 1`; sync then refreshes those values. The four new analysis
+columns remain null until recomputation. Before a complete split is available,
+the renderer and activity generator retain combined totals instead of guessing
+public/private values.
+
+**Outputs and compatibility**
+
+The raw database retains private repo names and messages. Report details and
+new-repo lists use only discoverable public repos. Commit detail tables also
+exclude messages matching `Merge pull request #%`; aggregate counts include
+those commits. Consequently, visible detail rows need not sum to headline counts.
+
+All errors escaping `GitHubSyncManager.sync()` are converted to `GitHubSyncError`
+with fixed diagnostic text and, for HTTP failures, a validated numeric status.
+Original exception text, URLs, request/response objects, headers, and bodies are
+not copied to the displayed error, and the original exception chain is suppressed.
+The boundary covers discovery, all commit pages, response parsing, and local
+database errors, regardless of the repo's discovered visibility. This protects
+both uncaught CLI tracebacks and the bulk `analyze` command's caught-error output.
+Successful private-repo progress messages use `Private repository` instead of a
+repo name. Activity failures still raise rather than becoming empty successful
+results; `publish` and `backfill` stop, while bulk `analyze` reports the sanitized
+failure and continues its other source sections. Low-level API exceptions are
+internal to this boundary and must not be logged separately. These rules apply
+to the normal CLI/logging paths, not custom debugging that dumps frame locals or
+raw transport objects.
+
+`code.yaml` exports all six counts after recomputation. Existing `commits` and
+`repos_touched` keys remain **combined totals**, but their population now includes
+stored private activity. This preserves the keys, not their former public-only
+meaning. Existing blog charts using those keys will still display combined
+counts; they must consume the new fields to show a split.
+
+`backfill` exports full history to the data repo and a month-filtered copy to the
+blog, starting inclusively at the same calendar month one year before the run.
+The cutoff filters already calculated records; it does not change their formulas.
+Previously committed report posts do not update automatically when analysis
+changes; they must be regenerated and published separately.
+
+Implementation pointers: [API discovery](github/api_client.py),
+[sync and author-month extraction](github/sync.py),
+[identity and visibility updates](github/database.py),
+[monthly aggregation](github/analytics.py),
+[report assembly](publish/publisher.py), and
+[activity exports](publish/data_generator.py).
+Regression coverage: [private activity, comparisons, visibility, and migration](../tests/test_github_private_activity.py),
+[discovery and permissions](../tests/test_github_client.py), and
+[incremental sync](../tests/test_github_sync.py).
+[Log and traceback regression tests](../tests/test_github_log_security.py) also
+cover HTTP/transport failures, malformed responses, pagination, CLI subprocess
+stderr, standard exception logging, and caught-error output.
 
 ### Oura Ring
 
@@ -472,10 +652,25 @@ Data tables:
 
 - `commits`
 
+The `commits.is_private` integer flag defaults to `0` for legacy public-only
+rows. Sync migrates existing databases automatically and refreshes this flag
+from repository discovery before fetching new commits. Private names and messages
+are stored locally but filtered from report details. `is_discoverable` defaults to
+`1` and becomes `0` when a repository is absent from discovery; its `is_private`
+flag then keeps the last known visibility for historical counts.
+
 Analysis fields:
 
 - `commits`
 - `repos_touched`
+- `public_commits`
+- `private_commits`
+- `public_repos_touched`
+- `private_repos_touched`
+
+`commits` and `repos_touched` remain combined totals for existing activity-data
+consumers. New visibility fields are nullable during analysis schema migration
+and are populated from raw commits by `github-analyze`.
 
 #### Oura Ring (`oura.db`)
 
@@ -565,7 +760,7 @@ Sources currently surfaced in the published report use comparisons for these met
 | Apple Health | workouts, total duration, total calories |
 | Blog | posts, total words, unique tags |
 | Hardcover | books finished, average rating |
-| GitHub | commits, repos touched |
+| GitHub | public/private commits and repos touched, each compared independently |
 | Oura Ring | median/avg sleep score, median/avg readiness score |
 
 ## Database Access Pattern
@@ -601,7 +796,7 @@ Key config areas:
 | Overcast | `OVERCAST_COOKIE`, `OVERCAST_EMAIL`, `OVERCAST_PASSWORD` |
 | Blog tracking | `BLOG_POSTS_INDEX_URL` |
 | Hardcover | `HARDCOVER_ACCESS_TOKEN` |
-| GitHub activity | `CODEBASE_USERNAME`, `BLOG_GITHUB_TOKEN` |
+| GitHub activity | `CODEBASE_USERNAME`, `CODEBASE_GITHUB_TOKEN` (legacy fallback: `BLOG_GITHUB_TOKEN`) |
 | Oura Ring | `OURA_CLIENT_ID`, `OURA_CLIENT_SECRET`, `OURA_REDIRECT_URI`, `OURA_ACCESS_TOKEN`, `OURA_REFRESH_TOKEN` |
 | Charles Schwab | `SCHWAB_CLIENT_ID`, `SCHWAB_CLIENT_SECRET`, `SCHWAB_CALLBACK_URL`, `SCHWAB_ACCESS_TOKEN`, `SCHWAB_REFRESH_TOKEN` |
 | GitHub publishing | `DATA_REPO_GITHUB_TOKEN`, `DATA_REPO_OWNER`, `DATA_REPO_NAME`, `DATA_GITHUB_TARGET_BRANCH`, `DATA_REPO_POSTS_DIR`, `BLOG_GITHUB_TOKEN`, `BLOG_REPO_OWNER`, `BLOG_REPO_NAME`, `BLOG_GITHUB_TARGET_BRANCH` |
@@ -646,6 +841,7 @@ Common Actions secrets include:
 - `OVERCAST_PASSWORD`
 - `HARDCOVER_ACCESS_TOKEN`
 - `CODEBASE_USERNAME`
+- `CODEBASE_GITHUB_TOKEN`
 - `BLOG_GITHUB_TOKEN`
 - `OURA_CLIENT_ID`
 - `OURA_CLIENT_SECRET`
