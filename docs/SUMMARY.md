@@ -21,14 +21,15 @@ The report contains:
 
 1. Hugo front matter
 2. `Reading`
-3. `Travel`
-4. `Movies`
-5. `Podcasts`
-6. `Workout`
-7. `Writing`
-8. `Books`
-9. `Code`
-10. `Sleep & Readiness`
+3. `Books`
+4. `Podcasts`
+5. `Writing`
+6. `Code`
+7. `Workout`
+8. `Weightlifting`
+9. `Travel`
+10. `Movies`
+11. `Sleep & Readiness`
 
 Only sections with available data are included.
 
@@ -114,6 +115,26 @@ remain excluded, and months follow the existing UTC grouping. Missing calorie
 measurements contribute nothing to the existing sum; sync reports their coverage
 so a partial total is not mistaken for complete measurement coverage. Observations
 held for identity or timestamp review are not added to workout rows or totals.
+
+### Weightlifting
+
+Sourced from Strong. Shows the date and name of the report month's latest
+workout, followed by a table with one row per exercise:
+
+| Exercise | Best weight | MoM | YoY |
+| --- | ---: | ---: | ---: |
+| Squat (Barbell) | 145 | +4% | +26% |
+
+Best weight is the highest recorded set weight for that exercise in that
+workout, rather than an all-time or monthly record. Comparisons use the same
+exercise's latest session in the previous calendar month and the same calendar
+month last year. Missing comparisons and zero baselines show `N/A`. Weights use
+the export's units without assuming kg or lb; bodyweight exercises retain their
+recorded zero weight.
+
+The section is omitted when the month has no Strong workout or its latest
+workout has no exercise sets. See the
+[calculation rules](../src/README.md#strong-metric-definitions).
 
 ### Writing
 

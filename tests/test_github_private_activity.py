@@ -39,7 +39,7 @@ def publisher_for(db):
     absent = MagicMock()
     absent.exists.return_value = False
     absent.get_connection.return_value.__enter__.return_value.cursor.return_value.fetchone.return_value = None
-    for source in ("readwise", "foursquare", "letterboxd", "overcast", "apple_health",
+    for source in ("readwise", "foursquare", "letterboxd", "overcast", "strong", "apple_health",
                    "blog", "hardcover", "oura"):
         setattr(publisher, f"{source}_db", absent)
     publisher.github_activity_db = db

@@ -116,9 +116,21 @@ Imports workouts from Strong CSV export.
 **Required in `.env`**
 - None
 
-Place the Strong CSV export in `<storage-root>/files/`.
+Place the Strong CSV export at `<storage-root>/files/strong_workouts.csv`
+(normally `digital-data-vault/files/strong_workouts.csv`). Exports named
+`strong_workouts*.csv` are supported; sync imports the file with the newest
+modification time. No credentials are needed.
 
-Strong remains available as a standalone source, but published workout output now comes from Apple Health instead.
+Run `uv run main.py strong-analyze` to import the export and refresh monthly
+analysis, then `uv run main.py publish --dry-run` to preview the report.
+Normal `publish` refreshes Strong automatically; `--dry-run` and
+`--skip-sync-analysis` use existing database contents.
+
+Strong powers the published **Weightlifting** section, with the latest workout's
+best set weight per exercise and MoM/YoY comparisons when available. The export
+does not identify weight units: keep the same Strong unit settings between
+exports so the values remain comparable. See the
+[calculation rules](../src/README.md#strong-metric-definitions).
 
 ## Apple Health
 

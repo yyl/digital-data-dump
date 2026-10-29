@@ -51,6 +51,8 @@ uv run main.py <command>
 | `backfill` | Refresh analysis and regenerate blog activity YAML files |
 | `status` | Show current sync status |
 | `workflowy-sync` | Sync a full Workflowy node export into the local mirror |
+| `strong-sync` | Import the latest Strong workout CSV from the storage root |
+| `strong-analyze` | Import Strong data and refresh monthly analysis for Weightlifting |
 | `apple-health-sync` | Import local DDU Apple Health JSON archives, preserving existing history |
 | `apple-health-analyze` | Import Apple Health JSON archives and recompute monthly workout metrics |
 | `{source}-sync` | Sync one source |

@@ -239,8 +239,48 @@ Letterboxd analysis writes:
 ### Strong
 
 - Imports Strong CSV workout exports into `strong.db`
-- Still has its own analysis path for workout/exercise/set metrics
-- No longer drives the published workout section
+- Computes monthly workout/exercise/set metrics and supplies the published
+  `Weightlifting` section through `StrongAnalytics.get_weightlifting_summary()`
+
+### Strong metric definitions
+
+The Weightlifting section reads raw `workouts` and `exercises` without changing
+the existing monthly `analysis` schema or activity YAML files. Strong analysis
+months participate in publish's latest-month selection. Apple Health continues
+to supply the separate Workout section and `workouts.yaml`.
+
+- **Session selection:** the latest `started_at` inside the report's calendar
+  month, interpreted as the local timestamp recorded in the CSV. Ties use the
+  greatest workout ID. No fallback to an earlier month or workout with sets.
+- **Exercise identity and population:** exact, case-sensitive `exercise_name`;
+  only exercises in the selected session, displayed in their first imported set
+  order. The importer groups sessions by CSV `Date` and skips Rest Timer and
+  other nonnumeric set-order rows. Every imported numeric set participates,
+  without adjusting for reps, equipment, assisted weight, or bodyweight.
+- **Best weight:** `MAX(weight)` across the exercise's sets in that session.
+  It is a session maximum, not a monthly best, all-time record, estimated 1RM,
+  or volume measure. Zero remains zero; SQL NULL weights display as `N/A` when
+  no set has a recorded weight. The importer represents blank CSV weights as
+  zero. No unit conversion occurs because the CSV contains no unit metadata;
+  comparable history requires consistent Strong export units.
+- **Historical baseline:** the same exercise's maximum set weight in its latest
+  session within the previous calendar month (MoM) or the same calendar month
+  one year earlier (YoY). That session may precede the comparison month's final
+  workout if the exercise was absent from the final workout. Never substitute
+  an older month or a different exercise.
+- **Change:** `(current - baseline) / baseline * 100`, rounded to one decimal
+  by the shared comparison helper and displayed as a whole percentage like
+  other report metrics. Missing exercises/months/weights and zero baselines
+  yield `N/A`. A current zero against a positive baseline yields `-100%`.
+
+The query path is read-only, so reimporting a corrected/new export changes a
+subsequently regenerated report without a schema migration. Previously published
+posts are unchanged until regenerated. An absent database, a month without
+workouts, or a latest workout without sets yields no Weightlifting section.
+Coverage is limited to imported exports; regression tests cover session versus
+monthly maxima, calendar boundaries, sparse history, zero/missing weights,
+timer exclusion, repeat imports, and end-to-end markdown generation in
+[`test_strong_weightlifting.py`](../tests/test_strong_weightlifting.py).
 
 ### Apple Health
 
@@ -597,7 +637,7 @@ Data tables:
 Analysis fields:
 
 - `workouts`
-- `total_duration_seconds`
+- `total_minutes`
 - `unique_exercises`
 - `total_sets`
 
@@ -757,6 +797,7 @@ Sources currently surfaced in the published report use comparisons for these met
 | Foursquare | checkins, unique places |
 | Letterboxd | movies watched, average rating |
 | Overcast | episodes played, minutes listened |
+| Strong | maximum set weight for each exercise in the latest workout |
 | Apple Health | workouts, total duration, total calories |
 | Blog | posts, total words, unique tags |
 | Hardcover | books finished, average rating |

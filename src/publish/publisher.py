@@ -12,6 +12,7 @@ from ..foursquare.database import FoursquareDatabase
 from ..letterboxd.database import LetterboxdDatabase
 from ..overcast.database import OvercastDatabase
 from ..strong.database import StrongDatabase
+from ..strong.analytics import StrongAnalytics
 from ..apple_health.database import AppleHealthDatabase
 from ..blog.database import BlogDatabase
 from ..hardcover.database import HardcoverDatabase
@@ -570,6 +571,7 @@ class Publisher:
             self.foursquare_db,
             self.letterboxd_db,
             self.overcast_db,
+            self.strong_db,
             self.apple_health_db,
             self.blog_db,
             self.hardcover_db,
@@ -819,7 +821,7 @@ class Publisher:
                 'comparisons': overcast_comparisons
             }
         
-        # Get Strong analysis
+        # Get Apple Health analysis
         apple_health = self._get_apple_health_analysis(year_month)
         if apple_health:
             apple_health_comparisons = compute_comparisons(
@@ -835,6 +837,10 @@ class Publisher:
                 'activity_breakdown': self._get_apple_health_activity_breakdown(year_month),
                 'comparisons': apple_health_comparisons
             }
+
+        strong = StrongAnalytics(db=self.strong_db).get_weightlifting_summary(year_month)
+        if strong:
+            data['strong'] = strong
 
         blog = self._get_blog_analysis(year_month)
         if blog:

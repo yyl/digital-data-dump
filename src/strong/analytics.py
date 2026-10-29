@@ -5,6 +5,7 @@ from typing import Optional, Dict, Any
 
 from .database import StrongDatabase
 from .models import CREATE_ANALYSIS_TABLE, ANALYSIS_INDEXES
+from ..comparison import compute_percentage_change, get_comparison_periods
 from ..time_utils import utc_now_iso
 
 
@@ -18,6 +19,74 @@ class StrongAnalytics:
             db: Database manager instance.
         """
         self.db = db or StrongDatabase()
+
+    def get_weightlifting_summary(self, year_month: str) -> Optional[Dict[str, Any]]:
+        """Get the latest workout's best set weights and calendar comparisons.
+
+        Historical baselines use each exercise's latest session in the
+        comparison month, even if it wasn't in that month's final workout.
+        Weights retain the CSV's units, which the export does not identify.
+        """
+        periods = get_comparison_periods(year_month)
+        if not self.db.exists():
+            return None
+
+        with self.db.get_connection() as conn:
+            workout = conn.execute("""
+                SELECT id, workout_name, started_at
+                FROM workouts
+                WHERE strftime('%Y-%m', started_at) = ?
+                ORDER BY datetime(started_at) DESC, id DESC
+                LIMIT 1
+            """, (year_month,)).fetchone()
+            if workout is None:
+                return None
+
+            exercises = [dict(row) for row in conn.execute("""
+                SELECT exercise_name, MAX(weight) AS weight
+                FROM exercises
+                WHERE workout_id = ?
+                GROUP BY exercise_name
+                ORDER BY MIN(id)
+            """, (workout['id'],))]
+            if not exercises:
+                return None
+
+            history = {}
+            for comparison, month in periods.items():
+                rows = conn.execute("""
+                    WITH session_weights AS (
+                        SELECT e.exercise_name, w.id, w.started_at,
+                               MAX(e.weight) AS weight
+                        FROM exercises e
+                        JOIN workouts w ON w.id = e.workout_id
+                        WHERE strftime('%Y-%m', w.started_at) = ?
+                        GROUP BY e.exercise_name, w.id
+                    ), ranked AS (
+                        SELECT exercise_name, weight,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY exercise_name
+                                   ORDER BY datetime(started_at) DESC, id DESC
+                               ) AS recency
+                        FROM session_weights
+                    )
+                    SELECT exercise_name, weight FROM ranked WHERE recency = 1
+                """, (month,))
+                history[comparison] = {row['exercise_name']: row['weight'] for row in rows}
+
+        for exercise in exercises:
+            exercise['comparisons'] = {
+                comparison: compute_percentage_change(
+                    exercise['weight'], weights.get(exercise['exercise_name'])
+                )
+                for comparison, weights in history.items()
+            }
+
+        return {
+            'workout_name': workout['workout_name'],
+            'started_at': workout['started_at'],
+            'exercises': exercises,
+        }
 
     def _ensure_analysis_table(self) -> None:
         """Create analysis table if it doesn't exist."""

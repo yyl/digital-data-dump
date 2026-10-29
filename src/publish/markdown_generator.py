@@ -5,7 +5,7 @@ from typing import Dict, Any, Optional
 from zoneinfo import ZoneInfo
 from urllib.parse import quote, urlparse
 
-from ..comparison import format_comparison_suffix
+from ..comparison import format_change, format_comparison_suffix
 from ..github.models import VISIBILITY_METRICS
 
 
@@ -49,6 +49,9 @@ class MarkdownGenerator:
         # Apple Health workout section
         if data.get('apple_health'):
             parts.append(self._generate_apple_health_section(data['apple_health']))
+
+        if data.get('strong', {}).get('exercises'):
+            parts.append(self._generate_weightlifting_section(data['strong']))
 
         # Foursquare section
         if data.get('foursquare'):
@@ -102,6 +105,8 @@ class MarkdownGenerator:
             tags.append("overcast")
         if data.get('apple_health'):
             tags.append("apple-health")
+        if data.get('strong', {}).get('exercises'):
+            tags.append("strong")
         if data.get('blog'):
             tags.append("blog")
         if data.get('hardcover'):
@@ -396,6 +401,31 @@ categories: ["Summary"]
 {self._generate_whats_new_items(github_data.get('new_repos', []), 'new repo')}
 {self._generate_commit_groups_block(github_data.get('commit_groups', []))}
 """
+
+    def _generate_weightlifting_section(self, strong_data: Dict[str, Any]) -> str:
+        """Show the latest Strong session's maximum recorded weight per exercise."""
+        workout_name = self._clean_text(strong_data.get('workout_name'))
+        workout_date = self._format_date(strong_data.get('started_at'))
+        lines = [
+            "", "## Weightlifting", "",
+            f"**Latest workout**: {workout_date} — {workout_name}", "",
+            "Best set weight per exercise, in the units used in the Strong export.",
+            "MoM and YoY compare each exercise's latest session in the previous month and the same month last year.",
+            "",
+            "| Exercise | Best weight | MoM | YoY |",
+            "| --- | ---: | ---: | ---: |",
+        ]
+        for exercise in strong_data['exercises']:
+            name = self._escape_table_text(self._clean_text(exercise['exercise_name']))
+            weight = exercise.get('weight')
+            weight_display = f"{weight:,.10f}".rstrip('0').rstrip('.') if weight is not None else "N/A"
+            comparisons = exercise.get('comparisons', {})
+            lines.append(
+                f"| {name} | {weight_display} | {format_change(comparisons.get('mom'))} "
+                f"| {format_change(comparisons.get('yoy'))} |"
+            )
+        lines.append("")
+        return "\n".join(lines)
 
     def _generate_oura_section(self, oura_data: Dict[str, Any]) -> str:
         """Generate the Oura Ring statistics section."""

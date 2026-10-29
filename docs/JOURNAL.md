@@ -3,6 +3,23 @@
 Record meaningful project changes here, newest first. Each entry explains what
 changed, why, and where to find the design, usage, and implementation details.
 
+## 2026-10-29 — Publish Strong weightlifting progress
+
+Strong's existing CSV source now supplies a separate `Weightlifting` section in
+monthly reports. Each exercise in the month's latest workout shows its maximum
+recorded set weight, with MoM/YoY comparisons against that exercise's latest
+session in the corresponding calendar month. Missing or zero comparison
+baselines display `N/A`; export units are preserved without assuming kg or lb.
+Strong analysis now participates in selecting the report's latest month.
+
+This adds report output without changing existing monthly Strong fields,
+Apple Health workout metrics, or activity YAML schemas. Historical reports
+require regeneration to gain the new section, and corrected CSV imports affect
+future regeneration. No database migration is needed. See
+[source setup](SOURCES.md#strong), [report layout](SUMMARY.md#weightlifting),
+[metric definitions](../src/README.md#strong-metric-definitions), and
+[regression coverage](../tests/test_strong_weightlifting.py).
+
 ## 2026-10-25 — Sanitize GitHub activity failures
 
 Implementation commit: `a746a7c` — `feat: track private GitHub activity with

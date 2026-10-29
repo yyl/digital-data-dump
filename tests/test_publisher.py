@@ -182,7 +182,7 @@ class TestPublisher(unittest.TestCase):
 
         result = self.publisher._get_target_year_month()
 
-        self.assertEqual(result, "2025-04")
+        self.assertEqual(result, "2025-12")
         
     def test_last_month_selects_previous_calendar_month(self):
         cases = [
