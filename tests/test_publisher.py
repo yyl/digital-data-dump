@@ -32,158 +32,82 @@ class TestPublisher(unittest.TestCase):
             oura_db=self.mock_oura_db
         )
 
-    # Test 1: No exists check, No suppression (Readwise style)
     def test_get_readwise_analysis_success(self):
-        conn = MagicMock()
-        cursor = MagicMock()
-        self.mock_readwise_db.get_connection.return_value.__enter__.return_value = conn
-        conn.cursor.return_value = cursor
-        cursor.fetchone.return_value = {'year_month': '2023-01', 'articles': 10}
+        row = {'year_month': '2023-01', 'articles': 10}
+        self.mock_readwise_db.fetch_rows.return_value = [row]
+        self.assertEqual(self.publisher._get_readwise_analysis('2023-01'), row)
+        args, kwargs = self.mock_readwise_db.fetch_rows.call_args
+        self.assertEqual(args[1], ('2023-01',))
+        self.assertEqual(kwargs['required_tables'], ('analysis',))
 
-        result = self.publisher._get_readwise_analysis('2023-01')
-        self.assertEqual(result, {'year_month': '2023-01', 'articles': 10})
+    def test_analysis_failures_propagate_for_every_source(self):
+        for source in ('readwise', 'foursquare', 'letterboxd', 'overcast', 'strong',
+                       'apple_health', 'blog', 'hardcover', 'github', 'oura'):
+            with self.subTest(source=source):
+                db_name = 'github_activity' if source == 'github' else source
+                db = getattr(self, f'mock_{db_name}_db')
+                db.fetch_rows.side_effect = RuntimeError('source read failed')
+                with self.assertRaisesRegex(RuntimeError, 'source read failed'):
+                    getattr(self.publisher, f'_get_{source}_analysis')('2023-01')
 
-    def test_get_readwise_analysis_exception(self):
-        # Should propagate exception
-        self.mock_readwise_db.get_connection.side_effect = Exception("DB Error")
-        with self.assertRaises(Exception):
-            self.publisher._get_readwise_analysis('2023-01')
-
-    # Test 2: No exists check, With suppression (Foursquare style)
     def test_get_foursquare_analysis_success(self):
-        conn = MagicMock()
-        cursor = MagicMock()
-        self.mock_foursquare_db.get_connection.return_value.__enter__.return_value = conn
-        conn.cursor.return_value = cursor
-        cursor.fetchone.return_value = {'year_month': '2023-01', 'checkins': 5}
+        row = {'year_month': '2023-01', 'checkins': 5}
+        self.mock_foursquare_db.fetch_rows.return_value = [row]
+        self.assertEqual(self.publisher._get_foursquare_analysis('2023-01'), row)
 
-        result = self.publisher._get_foursquare_analysis('2023-01')
-        self.assertEqual(result, {'year_month': '2023-01', 'checkins': 5})
+    def test_unavailable_analysis_returns_none_for_every_source(self):
+        for source in ('readwise', 'foursquare', 'letterboxd', 'overcast', 'strong',
+                       'apple_health', 'blog', 'hardcover', 'github', 'oura'):
+            with self.subTest(source=source):
+                db_name = 'github_activity' if source == 'github' else source
+                getattr(self, f'mock_{db_name}_db').fetch_rows.return_value = []
+                self.assertIsNone(getattr(self.publisher, f'_get_{source}_analysis')('2023-01'))
 
-    def test_get_foursquare_analysis_exception(self):
-        # Should suppress exception and return None
-        self.mock_foursquare_db.get_connection.side_effect = Exception("DB Error")
-        result = self.publisher._get_foursquare_analysis('2023-01')
-        self.assertIsNone(result)
+    def test_get_overcast_analysis_success(self):
+        row = {'year_month': '2023-01', 'episodes_played': 20}
+        self.mock_overcast_db.fetch_rows.return_value = [row]
+        self.assertEqual(self.publisher._get_overcast_analysis('2023-01'), row)
 
-    # Test 3: With exists check, With suppression (Overcast style)
-    def test_get_overcast_analysis_not_exists(self):
-        self.mock_overcast_db.exists.return_value = False
-        result = self.publisher._get_overcast_analysis('2023-01')
-        self.assertIsNone(result)
-        # Should not even try to connect
-        self.mock_overcast_db.get_connection.assert_not_called()
-
-    def test_get_overcast_analysis_exists_success(self):
-        self.mock_overcast_db.exists.return_value = True
-        conn = MagicMock()
-        cursor = MagicMock()
-        self.mock_overcast_db.get_connection.return_value.__enter__.return_value = conn
-        conn.cursor.return_value = cursor
-        cursor.fetchone.return_value = {'year_month': '2023-01', 'episodes_played': 20}
-
-        result = self.publisher._get_overcast_analysis('2023-01')
-        self.assertEqual(result, {'year_month': '2023-01', 'episodes_played': 20})
-
-    def test_get_overcast_analysis_exists_exception(self):
-        self.mock_overcast_db.exists.return_value = True
-        self.mock_overcast_db.get_connection.side_effect = Exception("DB Error")
-
-        result = self.publisher._get_overcast_analysis('2023-01')
-        self.assertIsNone(result)
-
-    def test_get_apple_health_analysis_exists_success(self):
-        self.mock_apple_health_db.exists.return_value = True
-        conn = MagicMock()
-        cursor = MagicMock()
-        self.mock_apple_health_db.get_connection.return_value.__enter__.return_value = conn
-        conn.cursor.return_value = cursor
-        cursor.fetchone.return_value = {'year_month': '2023-01', 'workouts': 8, 'total_duration_seconds': 5400, 'total_calories': 1234.5}
-
-        result = self.publisher._get_apple_health_analysis('2023-01')
-        self.assertEqual(result, {'year_month': '2023-01', 'workouts': 8, 'total_duration_seconds': 5400, 'total_calories': 1234.5})
+    def test_get_apple_health_analysis_success(self):
+        row = {'year_month': '2023-01', 'workouts': 8,
+               'total_duration_seconds': 5400, 'total_calories': 1234.5}
+        self.mock_apple_health_db.fetch_rows.return_value = [row]
+        self.assertEqual(self.publisher._get_apple_health_analysis('2023-01'), row)
 
     def test_get_apple_health_activity_breakdown(self):
-        self.mock_apple_health_db.exists.return_value = True
-        conn = MagicMock()
-        cursor = MagicMock()
-        self.mock_apple_health_db.get_connection.return_value.__enter__.return_value = conn
-        conn.cursor.return_value = cursor
-        cursor.fetchall.return_value = [
-            {'activity_type': 'run', 'workouts': 3},
-        ]
+        rows = [{'activity_type': 'run', 'workouts': 3}]
+        self.mock_apple_health_db.fetch_rows.return_value = rows
+        self.assertEqual(self.publisher._get_apple_health_activity_breakdown('2023-01'), rows)
+        self.assertEqual(
+            self.mock_apple_health_db.fetch_rows.call_args.kwargs['required_tables'], ('workouts',)
+        )
 
-        result = self.publisher._get_apple_health_activity_breakdown('2023-01')
-        self.assertEqual(result, [
-            {'activity_type': 'run', 'workouts': 3},
-        ])
-
-    def test_get_blog_analysis_exists_success(self):
-        self.mock_blog_db.exists.return_value = True
-        conn = MagicMock()
-        cursor = MagicMock()
-        self.mock_blog_db.get_connection.return_value.__enter__.return_value = conn
-        conn.cursor.return_value = cursor
-        cursor.fetchone.return_value = {'year_month': '2023-01', 'posts': 2, 'total_words': 1800, 'unique_tags': 3}
-
-        result = self.publisher._get_blog_analysis('2023-01')
-        self.assertEqual(result, {'year_month': '2023-01', 'posts': 2, 'total_words': 1800, 'unique_tags': 3})
+    def test_get_blog_analysis_success(self):
+        row = {'year_month': '2023-01', 'posts': 2, 'total_words': 1800, 'unique_tags': 3}
+        self.mock_blog_db.fetch_rows.return_value = [row]
+        self.assertEqual(self.publisher._get_blog_analysis('2023-01'), row)
 
     def test_get_blog_top_tags(self):
-        self.mock_blog_db.exists.return_value = True
-        conn = MagicMock()
-        cursor = MagicMock()
-        self.mock_blog_db.get_connection.return_value.__enter__.return_value = conn
-        conn.cursor.return_value = cursor
-        cursor.fetchall.return_value = [
-            {'tag': 'python', 'posts': 2},
-            {'tag': 'hugo', 'posts': 1},
-        ]
-
-        result = self.publisher._get_blog_top_tags('2023-01')
-        self.assertEqual(result, [
-            {'tag': 'python', 'posts': 2},
-            {'tag': 'hugo', 'posts': 1},
-        ])
+        rows = [{'tag': 'python', 'posts': 2}, {'tag': 'hugo', 'posts': 1}]
+        self.mock_blog_db.fetch_rows.return_value = rows
+        self.assertEqual(self.publisher._get_blog_top_tags('2023-01'), rows)
+        self.assertEqual(
+            self.mock_blog_db.fetch_rows.call_args.kwargs['required_tables'], ('posts', 'post_tags')
+        )
 
     def test_get_target_year_month_uses_all_sources(self):
-        self.mock_readwise_db.exists.return_value = True
-        self.mock_foursquare_db.exists.return_value = True
-        self.mock_letterboxd_db.exists.return_value = True
-        self.mock_overcast_db.exists.return_value = True
-        self.mock_strong_db.exists.return_value = True
-        self.mock_apple_health_db.exists.return_value = True
-        self.mock_blog_db.exists.return_value = True
-        self.mock_hardcover_db.exists.return_value = True
-        self.mock_github_activity_db.exists.return_value = True
-        self.mock_oura_db.exists.return_value = True
+        months = {
+            'readwise': None, 'foursquare': None, 'letterboxd': '2024-12',
+            'overcast': '2025-01', 'strong': '2025-12', 'apple_health': '2025-02',
+            'blog': '2025-04', 'hardcover': '2025-03', 'github_activity': '2025-01',
+            'oura': '2025-01',
+        }
+        for source, month in months.items():
+            getattr(self, f'mock_{source}_db').fetch_rows.return_value = (
+                [{'year_month': month}] if month else []
+            )
+        self.assertEqual(self.publisher._get_target_year_month(), '2025-12')
 
-        self.mock_readwise_db.get_connection.side_effect = Exception("readwise missing")
-        self.mock_foursquare_db.get_connection.side_effect = Exception("foursquare missing")
-
-        def make_conn(year_month):
-            conn = MagicMock()
-            cursor = MagicMock()
-            conn.cursor.return_value = cursor
-            cursor.fetchall.return_value = [] if year_month is None else [{"year_month": year_month}]
-            manager = MagicMock()
-            manager.__enter__.return_value = conn
-            manager.__exit__.return_value = None
-            return manager
-
-        self.mock_letterboxd_db.get_connection.return_value = make_conn("2024-12")
-        self.mock_overcast_db.get_connection.return_value = make_conn("2025-01")
-        self.mock_strong_db.get_connection.return_value = make_conn("2025-12")
-        self.mock_apple_health_db.get_connection.return_value = make_conn("2025-02")
-        self.mock_blog_db.get_connection.return_value = make_conn("2025-04")
-        self.mock_hardcover_db.get_connection.return_value = make_conn("2025-03")
-        self.mock_github_activity_db.get_connection.return_value = make_conn("2025-01")
-        self.mock_oura_db.get_connection.return_value = make_conn("2025-01")
-
-        result = self.publisher._get_target_year_month()
-
-        self.assertEqual(result, "2025-12")
-        
     def test_last_month_selects_previous_calendar_month(self):
         cases = [
             # Current-month data must not be required to select last month.
@@ -216,32 +140,20 @@ class TestPublisher(unittest.TestCase):
         self.publisher._build_github_client.assert_not_called()
 
     def test_get_new_github_repos_returns_repos(self):
-        self.mock_github_activity_db.exists.return_value = True
-        conn = MagicMock()
-        cursor = MagicMock()
-        self.mock_github_activity_db.get_connection.return_value.__enter__.return_value = conn
-        conn.cursor.return_value = cursor
-        cursor.fetchall.return_value = [
-            {'repo': 'user/another-new'},
-            {'repo': 'user/new-project'},
+        self.mock_github_activity_db.fetch_rows.return_value = [
+            {'repo': 'user/another-new'}, {'repo': 'user/new-project'},
         ]
+        self.assertEqual(self.publisher._get_new_github_repos('2025-04'),
+                         ['user/another-new', 'user/new-project'])
 
-        result = self.publisher._get_new_github_repos('2025-04')
-        self.assertEqual(result, ['user/another-new', 'user/new-project'])
+    def test_get_new_github_repos_unavailable(self):
+        self.mock_github_activity_db.fetch_rows.return_value = []
+        self.assertEqual(self.publisher._get_new_github_repos('2025-04'), [])
 
-    def test_get_new_github_repos_db_not_exists(self):
-        self.mock_github_activity_db.exists.return_value = False
-
-        result = self.publisher._get_new_github_repos('2025-04')
-        self.assertEqual(result, [])
-        self.mock_github_activity_db.get_connection.assert_not_called()
-
-    def test_get_new_github_repos_exception_suppressed(self):
-        self.mock_github_activity_db.exists.return_value = True
-        self.mock_github_activity_db.get_connection.side_effect = Exception("DB Error")
-
-        result = self.publisher._get_new_github_repos('2025-04')
-        self.assertEqual(result, [])
+    def test_get_new_github_repos_failures_propagate(self):
+        self.mock_github_activity_db.fetch_rows.side_effect = RuntimeError('source read failed')
+        with self.assertRaisesRegex(RuntimeError, 'source read failed'):
+            self.publisher._get_new_github_repos('2025-04')
 
     @patch("src.publish.publisher.Config")
     def test_publish_commits_report_post_to_data_repo(self, mock_config):

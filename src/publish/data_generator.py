@@ -132,14 +132,8 @@ class DataGenerator:
         FROM analysis
         ORDER BY year_month ASC
         """
-        with self.readwise_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(query)
-            rows = cursor.fetchall()
-        
         records = []
-        for row in rows:
-            row = dict(row)
+        for row in self.readwise_db.fetch_rows(query):
             words = row['words']
             time_mins = row['reading_time_mins']
             avg_speed = round(words / time_mins) if time_mins and time_mins > 0 else 0
@@ -154,7 +148,7 @@ class DataGenerator:
                 'min_words_per_article': row['min_words_per_article'],
             })
         return records
-    
+
     def _get_all_foursquare(self) -> List[Dict[str, Any]]:
         """Get all Foursquare analysis records, oldest first."""
         query = """
@@ -162,23 +156,12 @@ class DataGenerator:
         FROM analysis
         ORDER BY year_month ASC
         """
-        try:
-            with self.foursquare_db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(query)
-                rows = cursor.fetchall()
-            
-            return [
-                {
-                    'month': dict(row)['year_month'],
-                    'checkins': dict(row)['checkins'],
-                    'unique_places': dict(row)['unique_places'],
-                }
-                for row in rows
-            ]
-        except Exception:
-            return []
-    
+        return [
+            {'month': row['year_month'], 'checkins': row['checkins'],
+             'unique_places': row['unique_places']}
+            for row in self.foursquare_db.fetch_rows(query)
+        ]
+
     def _get_all_letterboxd(self) -> List[Dict[str, Any]]:
         """Get all Letterboxd analysis records, oldest first."""
         query = """
@@ -186,198 +169,100 @@ class DataGenerator:
         FROM analysis
         ORDER BY year_month ASC
         """
-        with self.letterboxd_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(query)
-            rows = cursor.fetchall()
-        
         return [
-            {
-                'month': dict(row)['year_month'],
-                'movies_watched': dict(row)['movies_watched'],
-                'minutes_watched': dict(row)['minutes_watched'],
-                'avg_rating': dict(row)['avg_rating'],
-            }
-            for row in rows
+            {'month': row['year_month'], 'movies_watched': row['movies_watched'],
+             'minutes_watched': row['minutes_watched'], 'avg_rating': row['avg_rating']}
+            for row in self.letterboxd_db.fetch_rows(query)
         ]
-    
+
     def _get_all_overcast(self) -> List[Dict[str, Any]]:
         """Get all Overcast analysis records, oldest first."""
-        if not self.overcast_db.exists():
-            return []
-        
         query = """
         SELECT year_month, feeds_added, feeds_removed, episodes_played, minutes_listened
         FROM analysis
         ORDER BY year_month ASC
         """
-        try:
-            with self.overcast_db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(query)
-                rows = cursor.fetchall()
-            
-            return [
-                {
-                    'month': dict(row)['year_month'],
-                    'feeds_added': dict(row)['feeds_added'],
-                    'feeds_removed': dict(row)['feeds_removed'],
-                    'episodes_played': dict(row)['episodes_played'],
-                    'minutes_listened': dict(row)['minutes_listened'],
-                }
-                for row in rows
-            ]
-        except Exception:
-            return []
-    
+        return [
+            {'month': row['year_month'], 'feeds_added': row['feeds_added'],
+             'feeds_removed': row['feeds_removed'], 'episodes_played': row['episodes_played'],
+             'minutes_listened': row['minutes_listened']}
+            for row in self.overcast_db.fetch_rows(query)
+        ]
+
     def _get_all_strong(self) -> List[Dict[str, Any]]:
         """Get all Strong analysis records, oldest first."""
-        if not self.strong_db.exists():
-            return []
-        
         query = """
         SELECT year_month, workouts, total_minutes, unique_exercises, total_sets
         FROM analysis
         ORDER BY year_month ASC
         """
-        try:
-            with self.strong_db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(query)
-                rows = cursor.fetchall()
-            
-            return [
-                {
-                    'month': dict(row)['year_month'],
-                    'workouts': dict(row)['workouts'],
-                    'total_minutes': dict(row)['total_minutes'],
-                    'unique_exercises': dict(row)['unique_exercises'],
-                    'total_sets': dict(row)['total_sets'],
-                }
-                for row in rows
-            ]
-        except Exception:
-            return []
+        return [
+            {'month': row['year_month'], 'workouts': row['workouts'],
+             'total_minutes': row['total_minutes'], 'unique_exercises': row['unique_exercises'],
+             'total_sets': row['total_sets']}
+            for row in self.strong_db.fetch_rows(query)
+        ]
 
     def _get_all_apple_health(self) -> List[Dict[str, Any]]:
         """Get all Apple Health analysis records, oldest first."""
-        if not self.apple_health_db.exists():
-            return []
-
         query = """
         SELECT year_month, workouts, total_duration_seconds, total_calories
         FROM analysis
         ORDER BY year_month ASC
         """
-        try:
-            with self.apple_health_db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(query)
-                rows = cursor.fetchall()
-
-            return [
-                {
-                    'month': dict(row)['year_month'],
-                    'workouts': dict(row)['workouts'],
-                    'total_minutes': round((dict(row)['total_duration_seconds'] or 0) / 60),
-                    'total_calories': dict(row)['total_calories'],
-                }
-                for row in rows
-            ]
-        except Exception:
-            return []
+        return [
+            {'month': row['year_month'], 'workouts': row['workouts'],
+             'total_minutes': round((row['total_duration_seconds'] or 0) / 60),
+             'total_calories': row['total_calories']}
+            for row in self.apple_health_db.fetch_rows(query)
+        ]
 
     def _get_all_blog(self) -> List[Dict[str, Any]]:
         """Get all blog analysis records, oldest first."""
-        if not self.blog_db.exists():
-            return []
-
         query = """
         SELECT year_month, posts, total_words, unique_tags
         FROM analysis
         ORDER BY year_month ASC
         """
-        try:
-            with self.blog_db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(query)
-                rows = cursor.fetchall()
+        return [
+            {'month': row['year_month'], 'posts': row['posts'],
+             'total_words': row['total_words'], 'unique_tags': row['unique_tags']}
+            for row in self.blog_db.fetch_rows(query)
+        ]
 
-            return [
-                {
-                    'month': dict(row)['year_month'],
-                    'posts': dict(row)['posts'],
-                    'total_words': dict(row)['total_words'],
-                    'unique_tags': dict(row)['unique_tags'],
-                }
-                for row in rows
-            ]
-        except Exception:
-            return []
-    
     def _get_all_hardcover(self) -> List[Dict[str, Any]]:
         """Get all Hardcover analysis records, oldest first."""
-        if not self.hardcover_db.exists():
-            return []
-        
         query = """
         SELECT year_month, books_finished, avg_rating
         FROM analysis
         ORDER BY year_month ASC
         """
-        try:
-            with self.hardcover_db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(query)
-                rows = cursor.fetchall()
-            
-            return [
-                {
-                    'month': dict(row)['year_month'],
-                    'books_finished': dict(row)['books_finished'],
-                    'avg_rating': dict(row)['avg_rating'],
-                }
-                for row in rows
-            ]
-        except Exception:
-            return []
-    
+        return [
+            {'month': row['year_month'], 'books_finished': row['books_finished'],
+             'avg_rating': row['avg_rating']}
+            for row in self.hardcover_db.fetch_rows(query)
+        ]
+
     def _get_all_github(self) -> List[Dict[str, Any]]:
         """Get all GitHub analysis records, oldest first."""
-        if not self.github_activity_db.exists():
-            return []
-        
         query = """
         SELECT *
         FROM analysis
         ORDER BY year_month ASC
         """
-        try:
-            with self.github_activity_db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(query)
-                rows = cursor.fetchall()
-            
-            records = []
-            for row in rows:
-                stats = dict(row)
-                record = {
-                    'month': stats['year_month'],
-                    'commits': stats['commits'],
-                    'repos_touched': stats['repos_touched'],
-                }
-                if all(stats.get(metric) is not None for metric in VISIBILITY_METRICS):
-                    record.update({metric: stats[metric] for metric in VISIBILITY_METRICS})
-                records.append(record)
-            return records
-        except Exception:
-            return []
-    
+        records = []
+        for row in self.github_activity_db.fetch_rows(query):
+            record = {
+                'month': row['year_month'], 'commits': row['commits'],
+                'repos_touched': row['repos_touched'],
+            }
+            if all(row.get(metric) is not None for metric in VISIBILITY_METRICS):
+                record.update({metric: row[metric] for metric in VISIBILITY_METRICS})
+            records.append(record)
+        return records
+
     def _get_all_oura(self) -> List[Dict[str, Any]]:
         """Get all Oura analysis records pivoted to one row per month."""
-        if not self.oura_db.exists():
-            return []
-
         query = """
         SELECT year_month, source_table, metric, median_value, avg_value
         FROM analysis
@@ -385,30 +270,19 @@ class DataGenerator:
           AND metric = 'score'
         ORDER BY year_month ASC, source_table ASC
         """
-        try:
-            with self.oura_db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(query)
-                rows = cursor.fetchall()
-
-            # Pivot rows into one record per year_month
-            monthly: dict = {}
-            for row in rows:
-                row = dict(row)
-                ym = row['year_month']
-                if ym not in monthly:
-                    monthly[ym] = {'month': ym}
-                table = row['source_table']
-                if table == 'daily_sleep':
-                    monthly[ym]['median_sleep_score'] = row['median_value']
-                    monthly[ym]['avg_sleep_score'] = round(row['avg_value'], 2) if row['avg_value'] is not None else None
-                elif table == 'daily_readiness':
-                    monthly[ym]['median_readiness_score'] = row['median_value']
-                    monthly[ym]['avg_readiness_score'] = round(row['avg_value'], 2) if row['avg_value'] is not None else None
-
-            return list(monthly.values())
-        except Exception:
-            return []
+        monthly: dict = {}
+        for row in self.oura_db.fetch_rows(query):
+            ym = row['year_month']
+            if ym not in monthly:
+                monthly[ym] = {'month': ym}
+            table = row['source_table']
+            if table == 'daily_sleep':
+                monthly[ym]['median_sleep_score'] = row['median_value']
+                monthly[ym]['avg_sleep_score'] = round(row['avg_value'], 2) if row['avg_value'] is not None else None
+            elif table == 'daily_readiness':
+                monthly[ym]['median_readiness_score'] = row['median_value']
+                monthly[ym]['avg_readiness_score'] = round(row['avg_value'], 2) if row['avg_value'] is not None else None
+        return list(monthly.values())
 
     def generate_data_files(
         self,

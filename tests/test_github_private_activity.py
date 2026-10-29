@@ -38,7 +38,8 @@ def publisher_for(db):
     publisher = Publisher.__new__(Publisher)
     absent = MagicMock()
     absent.exists.return_value = False
-    absent.get_connection.return_value.__enter__.return_value.cursor.return_value.fetchone.return_value = None
+    absent.fetch_rows.return_value = []
+    absent.read_connection.return_value.__enter__.return_value = None
     for source in ("readwise", "foursquare", "letterboxd", "overcast", "strong", "apple_health",
                    "blog", "hardcover", "oura"):
         setattr(publisher, f"{source}_db", absent)

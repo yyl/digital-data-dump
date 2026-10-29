@@ -88,61 +88,21 @@ class Publisher:
         db: Any,
         query: str,
         params: tuple,
-        check_exists: bool = False,
-        suppress_errors: bool = False
     ) -> Optional[Dict[str, Any]]:
-        """Helper to fetch analysis data from a database.
-
-        Args:
-            db: Database manager instance.
-            query: SQL query to execute.
-            params: Tuple of query parameters.
-            check_exists: Whether to check if DB exists first.
-            suppress_errors: Whether to suppress exceptions.
-
-        Returns:
-            Dictionary with result row or None.
-        """
-        if check_exists and not db.exists():
-            return None
-
-        try:
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(query, params)
-                row = cursor.fetchone()
-
-                if row:
-                    return dict(row)
-        except Exception:
-            if not suppress_errors:
-                raise
-            # Fallthrough to return None
-            pass
-
-        return None
+        """Fetch one analysis row using the shared source-readiness policy."""
+        rows = self._fetch_rows(db, query, params)
+        return rows[0] if rows else None
 
     def _fetch_rows(
         self,
         db: Any,
         query: str,
         params: tuple,
-        check_exists: bool = False,
-        suppress_errors: bool = False
+        *,
+        required_tables=("analysis",),
     ) -> List[Dict[str, Any]]:
-        """Helper to fetch multiple rows from a database."""
-        if check_exists and not db.exists():
-            return []
-
-        try:
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(query, params)
-                return [dict(row) for row in cursor.fetchall()]
-        except Exception:
-            if not suppress_errors:
-                raise
-            return []
+        """Fetch report rows without suppressing database or schema failures."""
+        return db.fetch_rows(query, params, required_tables=required_tables)
 
     def _get_readwise_analysis(self, year_month: str) -> Optional[Dict[str, Any]]:
         """Get Readwise analysis for a specific month."""
@@ -165,7 +125,6 @@ class Publisher:
             self.foursquare_db,
             query,
             (year_month,),
-            suppress_errors=True
         )
     
     def _get_letterboxd_analysis(self, year_month: str) -> Optional[Dict[str, Any]]:
@@ -188,8 +147,6 @@ class Publisher:
             self.overcast_db,
             query,
             (year_month,),
-            check_exists=True,
-            suppress_errors=True
         )
     
     def _get_strong_analysis(self, year_month: str) -> Optional[Dict[str, Any]]:
@@ -203,8 +160,6 @@ class Publisher:
             self.strong_db,
             query,
             (year_month,),
-            check_exists=True,
-            suppress_errors=True
         )
 
     def _get_apple_health_analysis(self, year_month: str) -> Optional[Dict[str, Any]]:
@@ -218,8 +173,6 @@ class Publisher:
             self.apple_health_db,
             query,
             (year_month,),
-            check_exists=True,
-            suppress_errors=True
         )
 
     def _get_blog_analysis(self, year_month: str) -> Optional[Dict[str, Any]]:
@@ -233,8 +186,6 @@ class Publisher:
             self.blog_db,
             query,
             (year_month,),
-            check_exists=True,
-            suppress_errors=True
         )
     
     def _get_hardcover_analysis(self, year_month: str) -> Optional[Dict[str, Any]]:
@@ -248,8 +199,6 @@ class Publisher:
             self.hardcover_db,
             query,
             (year_month,),
-            check_exists=True,
-            suppress_errors=True
         )
     
     def _get_github_analysis(self, year_month: str) -> Optional[Dict[str, Any]]:
@@ -263,8 +212,6 @@ class Publisher:
             self.github_activity_db,
             query,
             (year_month,),
-            check_exists=True,
-            suppress_errors=True
         )
 
     def _get_oura_analysis(self, year_month: str) -> Optional[Dict[str, Any]]:
@@ -285,8 +232,6 @@ class Publisher:
             self.oura_db,
             query,
             (year_month,),
-            check_exists=True,
-            suppress_errors=True,
         )
         if not rows:
             return None
@@ -346,7 +291,9 @@ class Publisher:
           AND strftime('%Y-%m', last_moved_at) = ?
         ORDER BY datetime(last_moved_at) DESC, title ASC
         """
-        articles = self._fetch_rows(self.readwise_db, query, (year_month,))
+        articles = self._fetch_rows(
+            self.readwise_db, query, (year_month,), required_tables=("documents",)
+        )
         for article in articles:
             article['reading_speed_wpm'] = self._compute_reading_speed(
                 article.get('word_count'),
@@ -372,7 +319,9 @@ class Publisher:
           AND strftime('%Y-%m', h.highlighted_at) = ?
         ORDER BY datetime(h.highlighted_at) DESC, b.title ASC, h.id ASC
         """
-        return self._fetch_rows(self.readwise_db, query, (year_month,))
+        return self._fetch_rows(
+            self.readwise_db, query, (year_month,), required_tables=("books", "highlights")
+        )
 
     def _get_new_reading_sources(self, year_month: str) -> List[str]:
         """Get 'new' reading sources that appeared for the first time in the given month.
@@ -388,7 +337,9 @@ class Publisher:
           AND last_moved_at IS NOT NULL
         ORDER BY last_moved_at ASC
         """
-        rows = self._fetch_rows(self.readwise_db, query, ())
+        rows = self._fetch_rows(
+            self.readwise_db, query, (), required_tables=("documents",)
+        )
 
         # Track which resolved source names we've seen and their first month.
         first_seen: dict[str, str] = {}
@@ -416,7 +367,9 @@ class Publisher:
         WHERE strftime('%Y-%m', w.watched_at) = ?
         ORDER BY date(w.watched_at) DESC, w.movie_name ASC
         """
-        return self._fetch_rows(self.letterboxd_db, query, (year_month,))
+        return self._fetch_rows(
+            self.letterboxd_db, query, (year_month,), required_tables=("watched", "ratings")
+        )
 
     def _get_podcast_episodes(self, year_month: str) -> List[Dict[str, Any]]:
         """Get played podcast episodes in a specific month."""
@@ -438,8 +391,7 @@ class Publisher:
             self.overcast_db,
             query,
             (year_month,),
-            check_exists=True,
-            suppress_errors=True
+            required_tables=('feeds', 'episodes'),
         )
 
     def _get_new_podcast_feeds(self, year_month: str) -> List[str]:
@@ -454,8 +406,7 @@ class Publisher:
             self.overcast_db,
             query,
             (year_month,),
-            check_exists=True,
-            suppress_errors=True
+            required_tables=('feeds',),
         )
         return [row['title'] for row in rows if row.get('title')]
 
@@ -473,8 +424,7 @@ class Publisher:
             self.foursquare_db,
             query,
             (year_month,),
-            check_exists=True,
-            suppress_errors=True
+            required_tables=('places', 'checkins'),
         )
         return [row['name'] for row in rows if row.get('name')]
 
@@ -492,8 +442,7 @@ class Publisher:
             self.github_activity_db,
             query,
             (year_month,),
-            check_exists=True,
-            suppress_errors=True
+            required_tables=('commits',),
         )
         return [
             row['repo'] for row in rows
@@ -517,8 +466,7 @@ class Publisher:
             self.github_activity_db,
             query,
             (year_month,),
-            check_exists=True,
-            suppress_errors=True
+            required_tables=('commits',),
         )
         return [
             row for row in rows
@@ -539,8 +487,7 @@ class Publisher:
             self.apple_health_db,
             query,
             (year_month,),
-            check_exists=True,
-            suppress_errors=True
+            required_tables=('workouts',),
         )
 
     def _get_blog_top_tags(self, year_month: str) -> List[Dict[str, Any]]:
@@ -557,8 +504,7 @@ class Publisher:
             self.blog_db,
             query,
             (year_month,),
-            check_exists=True,
-            suppress_errors=True
+            required_tables=('posts', 'post_tags'),
         )
     
     def _get_target_year_month(self, last_month: bool = False) -> Optional[str]:
@@ -578,13 +524,7 @@ class Publisher:
             self.github_activity_db,
             self.oura_db,
         ]:
-            rows = self._fetch_rows(
-                db,
-                query,
-                (),
-                check_exists=True,
-                suppress_errors=True,
-            )
+            rows = self._fetch_rows(db, query, ())
             for row in rows:
                 if row and row.get("year_month"):
                     all_months.add(row["year_month"])

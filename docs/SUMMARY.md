@@ -33,6 +33,10 @@ The report contains:
 
 Only sections with available data are included.
 
+Missing or uninitialized databases and unavailable analysis are reported in CLI
+diagnostics and omitted from the post. Incomplete schemas and SQLite read errors
+stop generation with the source name; they do not produce a partial report.
+
 ## What's New
 
 `What's new` blocks appear inside the section they belong to and highlight newly seen items for the month, such as:

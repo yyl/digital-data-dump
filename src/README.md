@@ -806,9 +806,9 @@ Sources currently surfaced in the published report use comparisons for these met
 
 ## Database Access Pattern
 
-All DB managers inherit from `BaseDatabase` in [`src/database.py`](/Users/yulong/Documents%20(local)/coding/digital-data-dump/src/database.py).
+All DB managers inherit from `BaseDatabase` in [`src/database.py`](database.py).
 
-Typical usage:
+Sync, imports, migrations, and analysis writes use `get_connection()`:
 
 ```python
 with self.db.get_connection() as conn:
@@ -818,6 +818,46 @@ with self.db.get_connection() as conn:
 ```
 
 Connections use `sqlite3.Row`, so rows are accessed by column name.
+
+### Report and Activity Reads
+
+Report generation, latest-month selection, Strong session summaries, and activity
+YAML exports use `BaseDatabase.read_connection()` or `fetch_rows()`. Published
+source database classes declare `source_name` and `raw_table_names`; the shared
+reader applies one policy to all of them:
+
+| State | Behavior |
+| --- | --- |
+| File absent | Skip and ask the user to sync the source |
+| Schema has no user tables | Skip as uninitialized |
+| Raw schema complete, requested analysis table absent | Skip and ask the user to run analysis |
+| Declared raw table or required detail table missing | Raise `DatabaseReadError` naming the source and missing tables |
+| SQL query or SQLite read fails | Raise `DatabaseReadError` naming the source and diagnostic category |
+| Query returns no rows | Return an empty result normally |
+
+`read_connection(required_tables=(...))` yields a connection or `None` for an
+unavailable source. It opens an escaped SQLite file URI with `mode=ro`, closes
+the connection on every exit, and never initializes or commits source data.
+`fetch_rows(query, params, required_tables=("analysis",))` wraps this policy and
+returns dictionaries. Raw detail queries declare the tables they require;
+Strong uses one read connection for the current workout and its comparisons.
+Unavailability is rechecked on each read, with duplicate diagnostics suppressed
+per reason on each database instance.
+
+The reader validates table presence. SQLite identifies incompatible columns and
+damaged pages when the relevant queries execute; no full-file integrity scan is
+performed. An empty schema, missing analysis, partial schema, invalid non-SQLite
+file, and damaged SQLite pages have distinct regression coverage. SQLite and
+filesystem failures are surfaced with fixed diagnostic text and suppressed
+exception chaining; SQL text, file contents, and raw exception messages are not
+copied into the public error. Unexpected programming errors propagate.
+
+Publisher and DataGenerator share this policy; there are no per-source
+`suppress_errors` switches. A failed read stops generation before report/activity
+files are sent to either repository. Existing sync and analysis write paths
+retain their transaction behavior and schema ownership. Regression coverage is in
+[`test_database_reader.py`](../tests/test_database_reader.py) and
+[`test_source_readiness.py`](../tests/test_source_readiness.py).
 
 ## Time and Timestamps
 

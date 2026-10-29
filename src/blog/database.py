@@ -10,6 +10,9 @@ from .models import RAW_INDEXES, RAW_TABLES
 class BlogDatabase(BaseDatabase):
     """Manages SQLite storage for blog posts and tags."""
 
+    source_name = 'Blog'
+    raw_table_names = frozenset({'posts', 'post_tags'})
+
     def __init__(self, db_path: Optional[str] = None):
         """Initialize database manager."""
         super().__init__(db_path or str(Config.BLOG_DATABASE_PATH))

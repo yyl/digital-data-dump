@@ -9,6 +9,9 @@ from ..database import BaseDatabase
 
 class OvercastDatabase(BaseDatabase):
     """Manages SQLite database for Overcast data."""
+
+    source_name = 'Overcast'
+    raw_table_names = frozenset({'feeds', 'episodes', 'playlists'})
     
     def __init__(self, db_path: Optional[str] = None):
         """Initialize database manager."""

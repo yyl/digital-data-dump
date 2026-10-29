@@ -11,6 +11,18 @@ from .models import RAW_TABLES, RAW_INDEXES
 class OuraDatabase(BaseDatabase):
     """Manages SQLite database for Oura Ring daily summaries."""
 
+    source_name = 'Oura Ring'
+    raw_table_names = frozenset({
+        'daily_activity',
+        'daily_sleep',
+        'daily_readiness',
+        'daily_stress',
+        'daily_resilience',
+        'daily_spo2',
+        'daily_cardiovascular_age',
+        'sync_state',
+    })
+
     def __init__(self, db_path: Optional[str] = None):
         """Initialize database manager."""
         super().__init__(db_path or str(Config.OURA_DATABASE_PATH))

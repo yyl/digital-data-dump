@@ -3,6 +3,23 @@
 Record meaningful project changes here, newest first. Each entry explains what
 changed, why, and where to find the design, usage, and implementation details.
 
+## 2026-10-29 — Share source readiness and database read handling
+
+All published sources now use the same read-only database layer for report
+queries, month selection, Strong exercise comparisons, and activity exports.
+Missing files, empty schemas, and missing analysis are omitted with diagnostics.
+Partial schemas and SQLite/filesystem failures stop generation with the source
+name. This replaces the previous mix of unguarded reads and blanket exception
+suppression, which could either abort on optional empty sources or silently hide
+an unreadable source. Read-only file URIs prevent missing files from being created
+by report queries.
+
+Source classes declare their raw table names. Sync/import/analysis writes and
+metric definitions remain unchanged; no migration is required. Normal report
+and YAML contents are preserved, while broken sources now need repair before
+generation succeeds. See the [read policy](../src/README.md#report-and-activity-reads)
+and [source integration regressions](../tests/test_source_readiness.py).
+
 ## 2026-10-29 — Publish Strong weightlifting progress
 
 Strong's existing CSV source now supplies a separate `Weightlifting` section in

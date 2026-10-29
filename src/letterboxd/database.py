@@ -10,6 +10,9 @@ from .models import RAW_TABLES, RAW_INDEXES
 
 class LetterboxdDatabase(BaseDatabase):
     """Manages SQLite database for Letterboxd data."""
+
+    source_name = 'Letterboxd'
+    raw_table_names = frozenset({'users', 'watched', 'ratings'})
     
     def __init__(self, db_path: Optional[str] = None):
         """Initialize database manager."""

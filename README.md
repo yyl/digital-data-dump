@@ -90,6 +90,11 @@ Useful publish flags:
 - `--skip-sync-analysis`: publish from existing analysis data
 - `--last-month`: publish the previous calendar month, requiring analysis data for that month
 
+Report previews and activity exports read existing databases in read-only mode.
+Missing or uninitialized sources, and sources whose analysis has not run, are
+omitted with a diagnostic. An incomplete schema or unreadable database stops
+generation and identifies the source so it can be repaired before publishing.
+
 ### Regenerate Activity Data Files
 
 ```bash

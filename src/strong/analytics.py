@@ -28,10 +28,9 @@ class StrongAnalytics:
         Weights retain the CSV's units, which the export does not identify.
         """
         periods = get_comparison_periods(year_month)
-        if not self.db.exists():
-            return None
-
-        with self.db.get_connection() as conn:
+        with self.db.read_connection(required_tables=("workouts", "exercises")) as conn:
+            if conn is None:
+                return None
             workout = conn.execute("""
                 SELECT id, workout_name, started_at
                 FROM workouts

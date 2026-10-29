@@ -11,6 +11,17 @@ from .models import RAW_TABLES, RAW_INDEXES
 
 class ReadwiseDatabase(BaseDatabase):
     """Manages SQLite database connections and operations."""
+
+    source_name = 'Readwise'
+    raw_table_names = frozenset({
+        'books',
+        'highlights',
+        'highlight_tags',
+        'book_tags',
+        'documents',
+        'document_tags',
+        'sync_state',
+    })
     
     def __init__(self, db_path: Optional[str] = None):
         """Initialize database manager.

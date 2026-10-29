@@ -12,6 +12,9 @@ from .models import RAW_TABLES, RAW_INDEXES, JSON_TABLES
 class AppleHealthDatabase(BaseDatabase):
     """Manages SQLite storage for Apple Health workouts."""
 
+    source_name = 'Apple Health'
+    raw_table_names = frozenset({'workouts'})
+
     def __init__(self, db_path: Optional[str] = None):
         """Initialize database manager."""
         super().__init__(db_path or str(Config.APPLE_HEALTH_DATABASE_PATH))

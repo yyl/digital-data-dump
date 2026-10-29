@@ -9,6 +9,9 @@ from . import models
 
 class HardcoverDatabase(BaseDatabase):
     """SQLite database manager for Hardcover books."""
+
+    source_name = 'Hardcover'
+    raw_table_names = frozenset({'books'})
     
     def __init__(self, db_path: Optional[str] = None):
         """Initialize database manager.

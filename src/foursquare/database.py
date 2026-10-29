@@ -11,6 +11,9 @@ from .models import RAW_TABLES, RAW_INDEXES, CREATE_VIEWS
 
 class FoursquareDatabase(BaseDatabase):
     """Manages SQLite database for Foursquare data."""
+
+    source_name = 'Foursquare'
+    raw_table_names = frozenset({'users', 'places', 'checkins', 'sync_state'})
     
     def __init__(self, db_path: Optional[str] = None):
         """Initialize database manager."""

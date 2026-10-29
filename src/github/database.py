@@ -9,6 +9,9 @@ from . import models
 
 class GitHubDatabase(BaseDatabase):
     """SQLite database manager for GitHub commits."""
+
+    source_name = 'GitHub'
+    raw_table_names = frozenset({'commits'})
     
     def __init__(self, db_path: Optional[str] = None):
         """Initialize database manager.
