@@ -30,6 +30,7 @@ Usage:
     python main.py schwab-sync       # Sync Charles Schwab accounts
     python main.py schwab-analyze    # Analyze Schwab monthly P&L
     python main.py workflowy-sync    # Sync Workflowy nodes
+    python main.py workflowy-analyze # Analyze monthly Workflowy node activity
     python main.py publish           # Publish monthly report to data repo
     python main.py publish --dry-run # Validate config without publishing
     python main.py publish --skip-sync-analysis # Publish from current analysis data
@@ -568,6 +569,13 @@ def cmd_analyze():
     except Exception as e:
         print(f"  Error/skip: {e}")
 
+    print("\n--- Workflowy ---")
+    try:
+        Config.validate_workflowy()
+        cmd_workflowy_analyze()
+    except Exception as e:
+        print(f"  Error/skip: {e}")
+
     print("\nAnalysis complete!")
 
 
@@ -746,6 +754,21 @@ def cmd_workflowy_sync():
     from src.workflowy.sync import WorkflowySyncManager
 
     WorkflowySyncManager().sync()
+
+
+def cmd_workflowy_analyze():
+    """Sync Workflowy and recompute monthly node activity."""
+    from src.workflowy.database import WorkflowyDatabase
+    from src.workflowy.analytics import WorkflowyAnalytics
+
+    run_analysis(
+        sync_func=cmd_workflowy_sync,
+        db_cls=WorkflowyDatabase,
+        analytics_cls=WorkflowyAnalytics,
+        service_name="Workflowy nodes",
+        analysis_method="analyze_nodes",
+        db_filename="workflowy.db",
+    )
 
 
 def cmd_schwab_analyze():
@@ -1320,6 +1343,7 @@ def main():
     subparsers.add_parser("schwab-sync", help="Sync Charles Schwab accounts")
     subparsers.add_parser("schwab-analyze", help="Analyze Schwab monthly P&L")
     subparsers.add_parser("workflowy-sync", help="Sync Workflowy nodes")
+    subparsers.add_parser("workflowy-analyze", help="Analyze monthly Workflowy node activity")
     subparsers.add_parser("status", help="Show sync status")
     subparsers.add_parser("backfill", help="Commit activity data files to configured repos")
     
@@ -1374,6 +1398,7 @@ def main():
         "schwab-sync": cmd_schwab_sync,
         "schwab-analyze": cmd_schwab_analyze,
         "workflowy-sync": cmd_workflowy_sync,
+        "workflowy-analyze": cmd_workflowy_analyze,
         "status": cmd_status,
     }
     

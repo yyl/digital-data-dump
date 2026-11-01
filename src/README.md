@@ -25,6 +25,7 @@ Note: the tree below is shown from the repository root.
 │   ├── hardcover/
 │   ├── github/
 │   ├── oura/
+│   ├── workflowy/
 │   └── publish/
 ├── docs/
 ├── tests/
@@ -116,7 +117,7 @@ matching code and data snapshots; a date in the journal alone is insufficient.
 
 | Type | Sources | Ingestion Path |
 |------|---------|----------------|
-| API-backed | Readwise, Foursquare, Blog, Hardcover, GitHub, Oura, Schwab | `api_client.py` + `sync.py` |
+| API-backed | Readwise, Foursquare, Blog, Hardcover, GitHub, Oura, Schwab, Workflowy | `api_client.py` + `sync.py` |
 | File-backed | Letterboxd, Overcast, Strong, Apple Health | `importer.py` |
 
 Letterboxd is hybrid in practice: it uses RSS for incremental sync, plus CSV export seeding when the DB is empty.
@@ -174,7 +175,43 @@ Published workout metrics come from Apple Health monthly analysis. Strong is sti
 - Syncs the complete `GET /api/v1/nodes-export` response into `workflowy.db`; Workflowy does not document a delta endpoint, cursor, or modified-since filter.
 - `nodes` preserves source fields, the complete raw JSON object, and local audit fields (`first_seen_at`, `last_seen_at`, `is_deleted`). Missing IDs from a validated export are retained as tombstones rather than deleted.
 - `sync_state` records the last successful snapshot and counts. A file lock prevents overlapping Workflowy syncs from applying stale snapshots.
-- Workflowy has no analysis or publishing integration yet.
+- `node_modifications(node_id, modified_at)` preserves each observed source edit timestamp; `node_removals(node_id, removed_at)` preserves active-to-missing transitions in UTC ISO format. Both use the pair as their primary key and are written in the snapshot transaction, so failed snapshots cannot leave activity behind.
+- Analysis owns `analysis(year_month, year, month, nodes_added, nodes_modified, nodes_removed, updated_at)`. Workflowy has standalone and aggregate analysis commands, but no report or activity YAML integration yet.
+
+#### Workflowy metric definitions
+
+All counts use distinct node IDs per UTC calendar month, independently for each
+metric. A node can contribute to multiple metrics in the same month.
+
+- **`nodes_added`** counts stored nodes by `created_at` (Workflowy's Unix seconds),
+  including tombstones. The initial snapshot contributes historical creations;
+  restoration of an ID does not count as another creation.
+- **`nodes_modified`** counts recorded `modified_at` timestamps strictly later
+  than the node's creation. Equal creation/modification times and null modification
+  times contribute no edits. Initial and legacy snapshots seed the latest known
+  edit; subsequent snapshots retain each newly observed edit timestamp. Multiple
+  edits in a month count once per node. A later month's edit does not erase the
+  earlier month's count, and restoration alone does not count as an edit.
+- **`nodes_removed`** counts nodes transitioning from active to missing in a
+  validated successful export, using the detection time, not an inferred source
+  deletion date. Repeated missing snapshots contribute nothing. Restoration
+  retains previous removals; a later removal can count again in another month.
+
+Raw initialization adds the two history tables without rewriting existing nodes.
+It seeds known modification timestamps idempotently, including those on legacy
+tombstones. Existing tombstones have unknown deletion dates and are not assigned
+invented removals. Newly observed deletions are tracked after this upgrade.
+
+Analysis rebuilds all monthly rows from stored nodes and history. Quiet months
+between the earliest known activity and the latest activity/successful sync get
+zero counts; a successful empty initial snapshot yields a zero row for its month.
+An unpopulated mirror with no successful sync yields no rows. `updated_at` is the
+UTC recomputation time. Zero means no recorded activity, not guaranteed historical
+coverage. There is no complete edit history in an export: edits overwritten
+between snapshots, nodes created and deleted entirely between syncs, and removals
+before tracking began cannot be reconstructed. More frequent syncs improve
+coverage. Later discovery of older nodes can increase historical creation/edit
+counts; observed edit dates are retained even if later source metadata changes.
 
 ### Readwise
 

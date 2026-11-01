@@ -176,7 +176,7 @@ def test_bulk_analyze_prints_only_sanitized_failure(activity, monkeypatch, capsy
     _, api, _ = activity
     arrange_failure(api, "403", "next_page")
     for source in ("readwise", "foursquare", "letterboxd", "overcast", "strong",
-                   "apple_health", "blog", "hardcover", "oura"):
+                   "apple_health", "blog", "hardcover", "oura", "workflowy"):
         monkeypatch.setattr(
             main, f"cmd_{source}_sync", MagicMock(side_effect=RuntimeError("Fixture source skipped")),
         )

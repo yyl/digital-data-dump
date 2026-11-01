@@ -24,6 +24,14 @@ class WorkflowyDatabase(BaseDatabase):
                 cursor.execute(statement)
             for statement in RAW_INDEXES:
                 cursor.execute(statement)
+            # Seed the latest known edit from legacy mirrors without inventing
+            # older edits or removal dates for existing tombstones.
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO node_modifications (node_id, modified_at)
+                SELECT id, modified_at FROM nodes WHERE modified_at > created_at
+                """
+            )
         if is_new:
             print(f"Workflowy database initialized at: {self.db_path}")
 
@@ -41,6 +49,11 @@ class WorkflowyDatabase(BaseDatabase):
 
     def upsert_node(self, node: Dict[str, Any], sync_time: str, cursor: sqlite3.Cursor) -> str:
         """Upsert one validated node and return inserted, updated, or unchanged."""
+        if node["modified_at"] is not None and node["modified_at"] > node["created_at"]:
+            cursor.execute(
+                "INSERT OR IGNORE INTO node_modifications (node_id, modified_at) VALUES (?, ?)",
+                (node["id"], node["modified_at"]),
+            )
         cursor.execute("SELECT * FROM nodes WHERE id = ?", (node["id"],))
         existing = cursor.fetchone()
         source_columns = (
@@ -81,6 +94,13 @@ class WorkflowyDatabase(BaseDatabase):
         return "inserted"
 
     def tombstone_missing_nodes(self, sync_time: str, cursor: sqlite3.Cursor) -> int:
+        cursor.execute(
+            """
+            INSERT INTO node_removals (node_id, removed_at)
+            SELECT id, ? FROM nodes WHERE is_deleted = 0 AND last_seen_at < ?
+            """,
+            (sync_time, sync_time),
+        )
         cursor.execute(
             """
             UPDATE nodes

@@ -15,6 +15,8 @@ from src.hardcover.analytics import HardcoverAnalytics
 from src.github.database import GitHubDatabase
 from src.github.analytics import GitHubAnalytics
 from src.schwab.database import SchwabDatabase
+from src.workflowy.database import WorkflowyDatabase
+from src.workflowy.analytics import WorkflowyAnalytics
 
 
 def _table_exists(db, table_name: str) -> bool:
@@ -37,6 +39,7 @@ def test_sync_side_init_only_creates_raw_tables(tmp_path):
         HardcoverDatabase(str(tmp_path / "hardcover.db")),
         GitHubDatabase(str(tmp_path / "github.db")),
         SchwabDatabase(str(tmp_path / "schwab.db")),
+        WorkflowyDatabase(str(tmp_path / "workflowy.db")),
     ]
 
     for db in dbs:
@@ -56,6 +59,7 @@ def test_analytics_creates_analysis_tables_when_missing(tmp_path):
         (BlogDatabase(str(tmp_path / "blog.db")), BlogAnalytics),
         (HardcoverDatabase(str(tmp_path / "hardcover.db")), HardcoverAnalytics),
         (GitHubDatabase(str(tmp_path / "github.db")), GitHubAnalytics),
+        (WorkflowyDatabase(str(tmp_path / "workflowy.db")), WorkflowyAnalytics),
     ]
 
     for db, analytics_cls in cases:

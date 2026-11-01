@@ -3,6 +3,28 @@
 Record meaningful project changes here, newest first. Each entry explains what
 changed, why, and where to find the design, usage, and implementation details.
 
+## 2026-11-01 — Analyze Workflowy node activity
+
+Workflowy previously stored only its latest mirror and latest sync statistics.
+It now retains observed modification timestamps and removal transitions, and
+`workflowy-analyze` syncs and rebuilds monthly `analysis` rows containing
+`nodes_added`, `nodes_modified`, and `nodes_removed`. Aggregate `analyze` includes
+the new source. Counts use distinct IDs per UTC month: source creation/edit dates
+for additions and modifications, and sync detection dates for removals.
+
+Raw initialization adds history tables and seeds the latest known edits from
+legacy mirrors. It cannot recover earlier edits or deletion dates from existing
+tombstones. New removal history survives restoration, and retained edits prevent
+later monthly edits from erasing earlier observed activity. Repeated syncs do not
+inflate counts. Creation counts include known tombstones; restoration is not a
+new creation. No report sections or YAML fields change in this release.
+
+Regression fixtures cover UTC boundaries, repeat syncs, multiple edits, later
+edits, deletion/restoration cycles, quiet months, empty data, legacy migration,
+and transactional rollback. See the
+[metric definitions](../src/README.md#workflowy-metric-definitions) and
+[Workflowy regressions](../tests/test_workflowy_sync.py).
+
 ## 2026-10-29 — Share source readiness and database read handling
 
 All published sources now use the same read-only database layer for report

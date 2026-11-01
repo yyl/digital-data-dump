@@ -17,17 +17,24 @@ Tracks books, highlights, and Reader documents.
 
 ## Workflowy
 
-Mirrors the current Workflowy outline as nodes, retaining locally observed deletions as tombstones for later analysis.
+Mirrors the current Workflowy outline as nodes, retaining locally observed deletions as tombstones and computing monthly activity counts.
 
 **Commands**
 - `workflowy-sync`
+- `workflowy-analyze`
 
 **Required in `.env`**
 - `WORKFLOWY_API_KEY`
 
 Create an API key in Workflowy account settings and add it to `.env`. Workflowy exposes a full `nodes-export` endpoint but no documented delta cursor or modified-since filter, so every sync downloads the complete node export and locally upserts only changed nodes. The export endpoint is limited to one request per minute; wait before retrying a rate-limited manual sync.
 
-Workflowy sync currently only stores raw node data. Monthly node-created/completed analysis and report publishing are intentionally not included yet.
+`workflowy-analyze` syncs first, then writes monthly counts of nodes added,
+modified, and removed to the local `analysis` table. It also runs as part of
+`analyze`. Creation and modification use Workflowy's dates; removals use the
+date sync detects a missing node. Run sync regularly to capture changes: the
+export only provides each node's latest modification, and past deletion dates
+cannot be recovered. See the [metric definitions](../src/README.md#workflowy-metric-definitions)
+for coverage limits. Workflowy report publishing is not included yet.
 
 ## Foursquare
 
