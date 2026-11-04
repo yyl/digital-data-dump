@@ -189,30 +189,77 @@ cross this threshold. Strong uploads do not refresh this Apple Health timestamp.
 
 ## Strong: share a complete CSV export
 
-1. Export the **complete workout history** from Strong as CSV.
-2. Run a Shortcut accepting **Files** from the share sheet, or use **Select File**
-   to choose the latest export. With the share-sheet version, enable **Show in
-   Share Sheet** and share the file from Strong or Files.
-3. Add **Get Contents of URL** using the shared connection settings and:
+The **Upload Strong Export** Shortcut receives the CSV from Strong's export
+share sheet and uploads it directly to DDU. Exporting the workout history and
+tapping the Shortcut in the share sheet are manual steps; the Shortcut handles
+the upload without a separate file picker. It does not generate the export or
+run automatically when Strong finishes exporting.
+
+### Shortcut setup
+
+1. Enable **Show in Share Sheet** and accept **Files**. The shared CSV becomes
+   **Shortcut Input**.
+2. Add a **URL** action containing `<BASE_URL>/v1/strong-export`.
+3. Add **Get Contents of URL**, using that URL and these settings:
 
    | Setting | Value |
    | --- | --- |
-   | URL | `<BASE_URL>/v1/strong-export` |
-   | `Content-Type` header | `text/csv` |
-   | Request Body | **File** → exported CSV / Shortcut Input |
+   | Method | `POST` |
+   | Header `Authorization` | `Bearer YOUR_UPLOAD_TOKEN` |
+   | Header `Content-Type` | Exactly `text/csv` |
+   | Request Body | **File** |
+   | File | **Shortcut Input** |
 
-4. Add **Show Result**. `status: saved` means GitHub confirmed the save;
-   `status: unchanged` means identical bytes were already present.
+4. Add **Show Result** (or **Show**) with the **Contents of URL** response.
 
-Send one original CSV file, with `Content-Type: text/csv` explicitly set. Do not
-convert it to JSON or a multipart form. The limit is **512 KiB**; empty,
-header-only, or malformed exports are rejected.
+Set `Content-Type` explicitly. DDU compares its value directly with `text/csv`;
+other values, including `text/csv; charset=utf-8`, return 415 `expected_csv`.
+Send one original CSV file as the body. Do not convert it to JSON or a multipart
+form. The limit is **512 KiB**; empty, header-only, or malformed exports are
+rejected.
+
+### Export and upload
+
+1. In Strong, export the **complete workout history** as CSV.
+2. In the export share sheet, tap **Upload Strong Export**. If the CSV was
+   already saved in Files, share that file to the same Shortcut.
+3. Check the response displayed by the Shortcut:
+
+   | Response | Meaning |
+   | --- | --- |
+   | HTTP 200, `status: saved` | GitHub confirmed the save; `commit_sha` identifies the commit |
+   | HTTP 200, `status: unchanged` | Identical bytes are already in DDV; no new commit was made |
+   | HTTP error | The save was not confirmed; inspect the error and retain the export for retry |
 
 Each changed export replaces `files/strong_workouts.csv`; Git history retains
-previous versions. This route has no durable inbox, pending receipt, or automatic
-delivery retry. On failure, retain the file and resend it. A 409 conflict requires
-checking which export is now current before retrying, because a successful upload
-replaces that file.
+previous versions. Always share the latest full export, since a successful
+upload replaces the current file. A local DDU server also writes to DDV on
+GitHub; it does not update the local DDV checkout.
+
+This route uses D1 only for the shared upload rate limit. It has no durable
+inbox, pending receipt, or automatic delivery retry. On failure, retain the file
+and resend it; respect `Retry-After` when present. A 409 conflict requires
+checking which export is now current before retrying.
+
+### Check the CSV input
+
+`invalid_strong_header` refers to the CSV's column header row, not the HTTP
+headers configured in the Shortcut. DDU requires these column names, in any
+order, and allows additional columns:
+
+```text
+Date,Workout Name,Duration,Exercise Name,Set Order,Weight,Reps,Distance,Seconds
+```
+
+Headers must be unique, data rows must have the same number of fields as the
+header, and dates must be nonempty. The uploader validates structure without
+normalizing workout values or changing the file bytes.
+
+For diagnosis, temporarily add **Quick Look** for **Shortcut Input** before
+the upload. Confirm it receives the exported CSV. Running the Shortcut with
+the editor's Play button may provide no shared file. Inspect the CSV's first
+line if `invalid_strong_header` persists; that line is enough to compare column
+names without sharing workout records.
 
 ## Refresh D3 after archival
 
@@ -247,6 +294,7 @@ historical baseline. See [source setup](SOURCES.md#apple-health),
 | 413 | Workouts/count/byte limit; split the export into smaller requests |
 | 415 | Explicit `application/json` for Apple Health or `text/csv` for Strong; use a File body |
 | 422 | Required fields, string values, date/unit formats, duplicate UUIDs within a batch, or CSV structure |
+| Strong `invalid_strong_header` | CSV column names or duplicate headers; inspect the first CSV row and confirm Shortcut Input contains the exported file |
 | Apple Health remains queued | Local admin retry or deployed delivery execution; inspect receipt/status on the trusted server |
 | New batch contains old workouts | Expected with a rolling selection; D3 deduplicates observations |
 | DDV has new files but reports look old | Update the local vault checkout and run the corresponding D3 analyze command |
