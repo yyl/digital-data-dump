@@ -55,6 +55,11 @@ class Config:
     WORKFLOWY_API_KEY: str = os.getenv("WORKFLOWY_API_KEY", "").strip()
     WORKFLOWY_API_BASE = "https://workflowy.com/api/v1"
     WORKFLOWY_DATABASE_PATH = DATA_DIR / "workflowy.db"
+
+    # Surfilog uses a fresh cookie login for every sync; tokens are not persisted.
+    SURFILOG_EMAIL: str = os.getenv("SURFILOG_EMAIL", "").strip()
+    SURFILOG_PASSWORD: str = os.getenv("SURFILOG_PASSWORD", "")
+    SURFILOG_DATABASE_PATH = DATA_DIR / "surfilog.db"
     
     # ==========================================================================
     # Foursquare Configuration
@@ -179,6 +184,17 @@ class Config:
             )
         return True
     
+    @classmethod
+    def validate_surfilog(cls) -> bool:
+        """Require Surfilog's own email/password sign-in credentials."""
+        missing = [name for name in ("SURFILOG_EMAIL", "SURFILOG_PASSWORD") if not getattr(cls, name)]
+        if missing:
+            raise ValueError(
+                f"Missing Surfilog configuration: {', '.join(missing)}. "
+                "Add your Surfilog email and password to .env."
+            )
+        return True
+
     @classmethod
     def validate_foursquare(cls) -> bool:
         """Validate Foursquare configuration."""

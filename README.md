@@ -54,6 +54,8 @@ uv run main.py <command>
 | `status` | Show current sync status |
 | `workflowy-sync` | Sync a full Workflowy node export into the local mirror |
 | `workflowy-analyze` | Sync Workflowy and recompute monthly nodes added, modified, and removed |
+| `surfilog-sync` | Sync Surfilog sessions, individual waves, and GPS tracks |
+| `surfilog-analyze` | Sync Surfilog and recompute monthly surfing metrics |
 | `strong-sync` | Import the latest Strong workout CSV from the storage root |
 | `strong-analyze` | Import Strong data and refresh monthly analysis for Weightlifting |
 | `apple-health-sync` | Import local DDU Apple Health JSON archives, preserving existing history |

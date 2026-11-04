@@ -195,6 +195,7 @@ class TestDataGeneratorFiltering:
         generator._get_all_blog = MagicMock(return_value=[])
         generator._get_all_hardcover = MagicMock(return_value=[])
         generator._get_all_github = MagicMock(return_value=[])
+        generator._get_all_surfilog = MagicMock(return_value=[])
 
         files = generator.generate_data_files(min_year_month="2027-04")
 

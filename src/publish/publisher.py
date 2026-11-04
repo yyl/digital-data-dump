@@ -19,6 +19,8 @@ from ..hardcover.database import HardcoverDatabase
 from ..github.database import GitHubDatabase
 from ..github.models import VISIBILITY_METRICS
 from ..oura.database import OuraDatabase
+from ..surfilog.database import SurfilogDatabase
+from ..surfilog.models import METRICS as SURFILOG_METRICS
 from .github_client import GitHubClient
 from .markdown_generator import MarkdownGenerator
 from .data_generator import DataGenerator
@@ -41,7 +43,8 @@ class Publisher:
         hardcover_db: Optional[HardcoverDatabase] = None,
         github_activity_db: Optional[GitHubDatabase] = None,
         oura_db: Optional[OuraDatabase] = None,
-        github_client: Optional[GitHubClient] = None
+        github_client: Optional[GitHubClient] = None,
+        surfilog_db: Optional[SurfilogDatabase] = None,
     ):
         """Initialize publisher.
         
@@ -57,6 +60,7 @@ class Publisher:
             github_activity_db: GitHub activity database manager.
             oura_db: Oura Ring database manager.
             github_client: GitHub client for committing files.
+            surfilog_db: Surfilog session and wave database manager.
         """
         self.readwise_db = readwise_db or ReadwiseDatabase()
         self.foursquare_db = foursquare_db or FoursquareDatabase()
@@ -68,6 +72,7 @@ class Publisher:
         self.hardcover_db = hardcover_db or HardcoverDatabase()
         self.github_activity_db = github_activity_db or GitHubDatabase()
         self.oura_db = oura_db or OuraDatabase()
+        self.surfilog_db = surfilog_db or SurfilogDatabase()
         self.github_client = github_client
         self.markdown_generator = MarkdownGenerator()
         self.data_generator = DataGenerator(
@@ -81,6 +86,7 @@ class Publisher:
             hardcover_db=self.hardcover_db,
             github_activity_db=self.github_activity_db,
             oura_db=self.oura_db,
+            surfilog_db=self.surfilog_db,
         )
     
     def _fetch_analysis(
@@ -212,6 +218,11 @@ class Publisher:
             self.github_activity_db,
             query,
             (year_month,),
+        )
+
+    def _get_surfilog_analysis(self, year_month: str) -> Optional[Dict[str, Any]]:
+        return self._fetch_analysis(
+            self.surfilog_db, "SELECT * FROM analysis WHERE year_month = ?", (year_month,),
         )
 
     def _get_oura_analysis(self, year_month: str) -> Optional[Dict[str, Any]]:
@@ -523,6 +534,7 @@ class Publisher:
             self.hardcover_db,
             self.github_activity_db,
             self.oura_db,
+            self.surfilog_db,
         ]:
             rows = self._fetch_rows(db, query, ())
             for row in rows:
@@ -831,6 +843,15 @@ class Publisher:
                 ),
                 'new_repos': self._get_new_github_repos(year_month),
                 'comparisons': github_comparisons
+            }
+
+        surfing = self._get_surfilog_analysis(year_month)
+        if surfing:
+            data['surfilog'] = {
+                **{metric: surfing[metric] for metric in SURFILOG_METRICS},
+                'comparisons': compute_comparisons(
+                    surfing, self._get_surfilog_analysis, year_month, list(SURFILOG_METRICS)
+                ),
             }
 
         # Get Oura analysis

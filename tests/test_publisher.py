@@ -17,6 +17,8 @@ class TestPublisher(unittest.TestCase):
         self.mock_hardcover_db = MagicMock(spec=BaseDatabase)
         self.mock_github_activity_db = MagicMock(spec=BaseDatabase)
         self.mock_oura_db = MagicMock(spec=BaseDatabase)
+        self.mock_surfilog_db = MagicMock(spec=BaseDatabase)
+        self.mock_surfilog_db.fetch_rows.return_value = []
 
         # Initialize publisher with mocks
         self.publisher = Publisher(
@@ -29,7 +31,8 @@ class TestPublisher(unittest.TestCase):
             blog_db=self.mock_blog_db,
             hardcover_db=self.mock_hardcover_db,
             github_activity_db=self.mock_github_activity_db,
-            oura_db=self.mock_oura_db
+            oura_db=self.mock_oura_db,
+            surfilog_db=self.mock_surfilog_db,
         )
 
     def test_get_readwise_analysis_success(self):
@@ -42,7 +45,7 @@ class TestPublisher(unittest.TestCase):
 
     def test_analysis_failures_propagate_for_every_source(self):
         for source in ('readwise', 'foursquare', 'letterboxd', 'overcast', 'strong',
-                       'apple_health', 'blog', 'hardcover', 'github', 'oura'):
+                       'apple_health', 'blog', 'hardcover', 'github', 'oura', 'surfilog'):
             with self.subTest(source=source):
                 db_name = 'github_activity' if source == 'github' else source
                 db = getattr(self, f'mock_{db_name}_db')
@@ -57,7 +60,7 @@ class TestPublisher(unittest.TestCase):
 
     def test_unavailable_analysis_returns_none_for_every_source(self):
         for source in ('readwise', 'foursquare', 'letterboxd', 'overcast', 'strong',
-                       'apple_health', 'blog', 'hardcover', 'github', 'oura'):
+                       'apple_health', 'blog', 'hardcover', 'github', 'oura', 'surfilog'):
             with self.subTest(source=source):
                 db_name = 'github_activity' if source == 'github' else source
                 getattr(self, f'mock_{db_name}_db').fetch_rows.return_value = []
@@ -100,7 +103,7 @@ class TestPublisher(unittest.TestCase):
             'readwise': None, 'foursquare': None, 'letterboxd': '2024-12',
             'overcast': '2025-01', 'strong': '2025-12', 'apple_health': '2025-02',
             'blog': '2025-04', 'hardcover': '2025-03', 'github_activity': '2025-01',
-            'oura': '2025-01',
+            'oura': '2025-01', 'surfilog': None,
         }
         for source, month in months.items():
             getattr(self, f'mock_{source}_db').fetch_rows.return_value = (

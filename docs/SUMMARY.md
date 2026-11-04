@@ -26,10 +26,11 @@ The report contains:
 5. `Writing`
 6. `Code`
 7. `Workout`
-8. `Weightlifting`
-9. `Travel`
-10. `Movies`
-11. `Sleep & Readiness`
+8. `Surfing`
+9. `Weightlifting`
+10. `Travel`
+11. `Movies`
+12. `Sleep & Readiness`
 
 Only sections with available data are included.
 
@@ -119,6 +120,19 @@ remain excluded, and months follow the existing UTC grouping. Missing calorie
 measurements contribute nothing to the existing sum; sync reports their coverage
 so a partial total is not mistaken for complete measurement coverage. Observations
 held for identity or timestamp review are not added to workout rows or totals.
+
+### Surfing
+
+Sourced from Surfilog. Shows:
+
+- sessions and waves caught, with MoM and YoY comparisons
+- time in the water and riding time
+- riding distance and paddling distance
+- maximum riding speed and longest wave
+
+The report uses session-local calendar months. Excluded waves remain in raw
+storage but do not contribute to wave counts, riding measurements, or records.
+Individual GPS tracks, spot names, and session share links are not rendered.
 
 ### Weightlifting
 
@@ -217,3 +231,7 @@ These appear inline with top-line metrics.
 The related `backfill` workflow regenerates monthly YAML data files under `data/activity/` for the blog.
 
 Those files are not the markdown report itself, but they are derived from the same monthly analysis layer.
+
+`surfing.yaml` includes `month`, `sessions`, `waves`, `total_duration_seconds`,
+`surf_time_seconds`, `surf_distance_m`, `paddling_distance_m`, `max_speed_kmh`,
+`longest_wave_m`, and `max_wave_seconds`.

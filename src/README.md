@@ -26,6 +26,7 @@ Note: the tree below is shown from the repository root.
 │   ├── github/
 │   ├── oura/
 │   ├── workflowy/
+│   ├── surfilog/
 │   └── publish/
 ├── docs/
 ├── tests/
@@ -117,7 +118,7 @@ matching code and data snapshots; a date in the journal alone is insufficient.
 
 | Type | Sources | Ingestion Path |
 |------|---------|----------------|
-| API-backed | Readwise, Foursquare, Blog, Hardcover, GitHub, Oura, Schwab, Workflowy | `api_client.py` + `sync.py` |
+| API-backed | Readwise, Foursquare, Blog, Hardcover, GitHub, Oura, Schwab, Workflowy, Surfilog | `api_client.py` + `sync.py` |
 | File-backed | Letterboxd, Overcast, Strong, Apple Health | `importer.py` |
 
 Letterboxd is hybrid in practice: it uses RSS for incremental sync, plus CSV export seeding when the DB is empty.
@@ -165,6 +166,7 @@ Current activity files:
 | `books.yaml` | Hardcover | `books_finished`, `avg_rating` |
 | `code.yaml` | GitHub | `commits`, `repos_touched` (combined), `public_commits`, `private_commits`, `public_repos_touched`, `private_repos_touched` |
 | `sleep.yaml` | Oura Ring | `median_sleep_score`, `avg_sleep_score`, `median_readiness_score`, `avg_readiness_score` |
+| `surfing.yaml` | Surfilog | `sessions`, `waves`, `total_duration_seconds`, `surf_time_seconds`, `surf_distance_m`, `paddling_distance_m`, `max_speed_kmh`, `longest_wave_m`, `max_wave_seconds` |
 
 Published workout metrics come from Apple Health monthly analysis. Strong is still importable and analyzable, but it is not the published workout source.
 
@@ -212,6 +214,58 @@ between snapshots, nodes created and deleted entirely between syncs, and removal
 before tracking began cannot be reconstructed. More frequent syncs improve
 coverage. Later discovery of older nodes can increase historical creation/edit
 counts; observed edit dates are retained even if later source metadata changes.
+
+### Surfilog
+
+- Uses `POST /api/auth/login`, verifies its cookie with `GET /api/auth/me`, then
+  fetches `GET /api/sessions` and `GET /api/sessions/{id}` for every listed session.
+- The standard-library client is shared with `scripts/surfilog_login.py` and
+  identifies itself as `digital-data-dump-surfilog-login/1.0`, following
+  [Cloudflare's descriptive User-Agent guidance](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-1xxx-errors/error-1010/#requests-to-pages-projects-or-workersdev).
+  HTTP redirects are rejected, requests have finite timeouts, and response bodies
+  and cookies are omitted from error messages. There are no automatic retries of
+  login failures, rate limits, or browser challenges.
+- Tokens are held only in an in-memory cookie jar. Each sync starts with a fresh
+  login. The raw DB never receives the password, login cookie, or session share token.
+- Fully fetches and validates all session details before a single SQLite
+  transaction replaces the raw snapshot and advances `sync_state`. Failure at
+  any download, normalization, or write preserves the previous snapshot and
+  successful-sync timestamp. Reprocessing, exclusions, and remote removals are
+  reflected on the next successful sync. The stored account ID prevents a
+  different configured account from replacing this database.
+- Raw session JSON, full-session `trackPoints`, and per-wave `coords_json` retain
+  the available source measurements. Wave coordinates include timestamps and
+  sample speeds, not only the display map's polyline points. Source numeric
+  strings become SQLite numbers for queried measurements.
+
+#### Surfilog metric definitions
+
+Session `started_at` is normalized to UTC and shifted using its recorded
+`utc_offset_min` to derive `local_started_at` and `date_month`. A missing offset
+uses UTC, independent of the machine's timezone. Upload time (`created_at`) never
+determines the surfing month. All waves belong to their session's start month,
+including sessions that span midnight. A session without waves still counts as
+one session and contributes its full water time.
+
+Analysis groups the current complete snapshot by `date_month`:
+
+- `sessions`: session count; `waves`: count of wave rows with `is_excluded = 0`.
+  `sessions.reported_wave_count` preserves the API's count for auditing; rollups
+  derive counts from individual waves so manual exclusions take effect even if
+  the API's session summary lags behind them.
+- `total_duration_seconds`: sum of each session's `duration_sec`, counted once.
+- `surf_time_seconds` and `surf_distance_m`: sums of non-excluded wave durations
+  and distances, retaining API precision rather than HTML-rounded measurements.
+- `max_speed_kmh`, `longest_wave_m`, and `max_wave_seconds`: maxima across
+  non-excluded waves, or zero when no counted waves exist.
+- `paddling_distance_m`: sum of available `session_metrics.paddlingDistanceM`;
+  missing measurements contribute nothing to the sum.
+
+Reanalysis replaces all monthly rows, so corrected dates, exclusions, and removed
+sessions update history and remove stale months. `surfing.yaml` and the Surfing
+report section publish aggregates, keeping individual tracks and raw metadata
+in the data database. Surfilog is included in the standard optional-source
+readiness and read-only publishing policy.
 
 ### Readwise
 
@@ -749,6 +803,24 @@ Analysis fields:
 consumers. New visibility fields are nullable during analysis schema migration
 and are populated from raw commits by `github-analyze`.
 
+#### Surfilog (`surfilog.db`)
+
+- `sessions`: primary key `id`; UTC and local session start, recorded UTC offset,
+  `date_month`, session duration, source-reported wave count, available paddling
+  distance, board/spot metadata, sanitized source JSON, full track JSON, sync time.
+- `waves`: primary key `id`; cascading `session_id` foreign key; unique
+  `(session_id, wave_num)`; UTC start, duration, distance, max speed, start
+  coordinates, exclusion flag, timestamped coordinates JSON, and raw wave JSON.
+- `sync_state`: singleton row with authenticated `user_id` and
+  `last_successful_sync_at`.
+- `analysis`: common `year_month`, `year`, `month`, and `updated_at`, plus
+  `sessions`, `waves`, `total_duration_seconds`, `surf_time_seconds`,
+  `surf_distance_m`, `paddling_distance_m`, `max_speed_kmh`, `longest_wave_m`,
+  and `max_wave_seconds`.
+
+Sync initializes only raw tables. `surfilog-analyze` creates and refreshes the
+derived `analysis` table.
+
 #### Oura Ring (`oura.db`)
 
 Data tables:
@@ -912,6 +984,7 @@ Key config areas:
 | Foursquare | `FOURSQUARE_ACCESS_TOKEN`, `FOURSQUARE_CLIENT_ID`, `FOURSQUARE_CLIENT_SECRET`, `FOURSQUARE_API_KEY` |
 | Letterboxd | `LETTERBOXD_RSS_URL`, `TMDB_ACCESS_TOKEN`, `TMDB_API_KEY` |
 | Overcast | `OVERCAST_COOKIE`, `OVERCAST_EMAIL`, `OVERCAST_PASSWORD` |
+| Surfilog | `SURFILOG_EMAIL`, `SURFILOG_PASSWORD` |
 | Blog tracking | `BLOG_POSTS_INDEX_URL` |
 | Hardcover | `HARDCOVER_ACCESS_TOKEN` |
 | GitHub activity | `CODEBASE_USERNAME`, `CODEBASE_GITHUB_TOKEN` (legacy fallback: `BLOG_GITHUB_TOKEN`) |
@@ -957,6 +1030,8 @@ Common Actions secrets include:
 - `OVERCAST_COOKIE`
 - `OVERCAST_EMAIL`
 - `OVERCAST_PASSWORD`
+- `SURFILOG_EMAIL`
+- `SURFILOG_PASSWORD`
 - `HARDCOVER_ACCESS_TOKEN`
 - `CODEBASE_USERNAME`
 - `CODEBASE_GITHUB_TOKEN`

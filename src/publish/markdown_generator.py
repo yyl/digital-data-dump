@@ -50,6 +50,9 @@ class MarkdownGenerator:
         if data.get('apple_health'):
             parts.append(self._generate_apple_health_section(data['apple_health']))
 
+        if data.get('surfilog'):
+            parts.append(self._generate_surfilog_section(data['surfilog']))
+
         if data.get('strong', {}).get('exercises'):
             parts.append(self._generate_weightlifting_section(data['strong']))
 
@@ -115,6 +118,8 @@ class MarkdownGenerator:
             tags.append("github")
         if data.get('oura'):
             tags.append("oura")
+        if data.get('surfilog'):
+            tags.append("surfilog")
         
         tags_str = ", ".join(f'"{t}"' for t in tags)
         
@@ -296,6 +301,26 @@ categories: ["Summary"]
 - **Total Calories**: {int(round(total_calories)):,} kcal{calories_cmp}
 {self._generate_activity_breakdown_block(apple_health_data.get('activity_breakdown', []))}
 """
+
+    def _generate_surfilog_section(self, surfing: Dict[str, Any]) -> str:
+        """Show surfing totals without exposing individual tracks or locations."""
+        comparisons = surfing.get('comparisons', {})
+        lines = ["", "## Surfing", ""]
+        for label, metric in [('Sessions', 'sessions'), ('Waves Caught', 'waves')]:
+            suffix = format_comparison_suffix(comparisons.get(metric))
+            lines.append(f"- **{label}**: {int(surfing.get(metric, 0))}{suffix}")
+        minutes = round(surfing.get('total_duration_seconds', 0) / 60)
+        lines.append(f"- **Time in the Water**: {minutes // 60}h {minutes % 60}m")
+        seconds = round(surfing.get('surf_time_seconds', 0))
+        lines.append(f"- **Riding Time**: {seconds // 60}m {seconds % 60}s")
+        for label, metric, unit in [
+            ('Riding Distance', 'surf_distance_m', 'm'),
+            ('Paddling Distance', 'paddling_distance_m', 'm'),
+            ('Max Speed', 'max_speed_kmh', 'km/h'),
+            ('Longest Wave', 'longest_wave_m', 'm'),
+        ]:
+            lines.append(f"- **{label}**: {surfing.get(metric, 0):,.1f} {unit}")
+        return "\n".join(lines) + "\n"
 
     def _generate_blog_section(self, blog_data: Dict[str, Any]) -> str:
         """Generate the blog writing statistics section."""

@@ -3,6 +3,37 @@
 Record meaningful project changes here, newest first. Each entry explains what
 changed, why, and where to find the design, usage, and implementation details.
 
+## 2026-11-04 — Add Surfilog surfing sessions and individual waves
+
+Adds the Surfilog API source with fresh cookie authentication on each sync and
+raw `surfilog.db` tables for sessions, detected waves (including exclusions),
+timestamped wave GPS samples, full session tracks, and successful-sync state.
+The entire account snapshot is validated before an atomic replacement, so
+repeated syncs reflect corrections and removals while failed syncs preserve data.
+Passwords, login cookies, and session share tokens are not stored in SQLite.
+
+New monthly metrics count sessions and non-excluded waves by the session's local
+start month, using UTC when no source offset is recorded. Riding time, distance,
+and records come from non-excluded waves; water time counts each session once.
+This adds the Surfing report section and `surfing.yaml` activity export without
+changing Apple Health's workout metrics. Historical output can be generated from
+all currently available Surfilog sessions, and corrections update it on reanalysis.
+
+The shared standard-library client also powers the existing login probe. The
+monthly pipeline receives `SURFILOG_EMAIL` and `SURFILOG_PASSWORD` from Actions
+secrets. Missing configuration skips this optional source; configured failures
+abort sync/report updates. Tests cover real HTTP cookie reuse and wave download,
+local month/year boundaries, exclusions, repeated syncs, deletion/reprocessing,
+snapshot rollback, source readiness, reports, and activity export filtering.
+See [source setup](SOURCES.md#surfilog), [report layout](SUMMARY.md#surfing), and
+[metric definitions](../src/README.md#surfilog-metric-definitions).
+
+Verified the first live local database: 1 October session, 8 waves, 71 wave GPS
+samples, and 4,293 session track points. SQLite integrity/foreign-key checks
+passed, and independent raw-record calculations matched every monthly metric,
+including 79 seconds riding and 313.1 meters traveled on waves. The October
+report dry run rendered correctly; all 446 tests passed with `make test-ci`.
+
 ## 2026-11-01 — Analyze Workflowy node activity
 
 Workflowy previously stored only its latest mirror and latest sync statistics.

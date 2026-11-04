@@ -15,6 +15,8 @@ from ..hardcover.database import HardcoverDatabase
 from ..github.database import GitHubDatabase
 from ..github.models import VISIBILITY_METRICS
 from ..oura.database import OuraDatabase
+from ..surfilog.database import SurfilogDatabase
+from ..surfilog.models import METRICS as SURFILOG_METRICS
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +79,7 @@ class DataGenerator:
         hardcover_db: Optional[HardcoverDatabase] = None,
         github_activity_db: Optional[GitHubDatabase] = None,
         oura_db: Optional[OuraDatabase] = None,
+        surfilog_db: Optional[SurfilogDatabase] = None,
     ):
         """Initialize data generator.
         
@@ -91,6 +94,7 @@ class DataGenerator:
             hardcover_db: Hardcover database manager.
             github_activity_db: GitHub activity database manager.
             oura_db: Oura Ring database manager.
+            surfilog_db: Surfilog session and wave database manager.
         """
         self.readwise_db = readwise_db or ReadwiseDatabase()
         self.foursquare_db = foursquare_db or FoursquareDatabase()
@@ -102,6 +106,7 @@ class DataGenerator:
         self.hardcover_db = hardcover_db or HardcoverDatabase()
         self.github_activity_db = github_activity_db or GitHubDatabase()
         self.oura_db = oura_db or OuraDatabase()
+        self.surfilog_db = surfilog_db or SurfilogDatabase()
 
     def _limit_records_by_month(
         self,
@@ -284,6 +289,13 @@ class DataGenerator:
                 monthly[ym]['avg_readiness_score'] = round(row['avg_value'], 2) if row['avg_value'] is not None else None
         return list(monthly.values())
 
+    def _get_all_surfilog(self) -> List[Dict[str, Any]]:
+        """Publish monthly aggregates; raw GPS and wave records stay in SQLite."""
+        return [
+            {"month": row["year_month"], **{metric: row[metric] for metric in SURFILOG_METRICS}}
+            for row in self.surfilog_db.fetch_rows("SELECT * FROM analysis ORDER BY year_month")
+        ]
+
     def generate_data_files(
         self,
         min_year_month: Optional[str] = None,
@@ -409,5 +421,13 @@ class DataGenerator:
             )
             logger.info(f"Generated sleep.yaml with {len(sleep_records)} records")
         
+        surfing_records = self._limit_records_by_month(
+            self._get_all_surfilog(), min_year_month, max_year_month,
+        )
+        if surfing_records:
+            files["data/activity/surfing.yaml"] = _to_yaml(
+                surfing_records, "Monthly surfing activity data"
+            )
+
         logger.info(f"Generated {len(files)} data files total")
         return files

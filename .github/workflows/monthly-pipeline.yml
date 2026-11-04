@@ -97,6 +97,8 @@ jobs:
           OVERCAST_COOKIE: ${{ secrets.OVERCAST_COOKIE }}
           OVERCAST_EMAIL: ${{ secrets.OVERCAST_EMAIL }}
           OVERCAST_PASSWORD: ${{ secrets.OVERCAST_PASSWORD }}
+          SURFILOG_EMAIL: ${{ secrets.SURFILOG_EMAIL }}
+          SURFILOG_PASSWORD: ${{ secrets.SURFILOG_PASSWORD }}
           HARDCOVER_ACCESS_TOKEN: ${{ secrets.HARDCOVER_ACCESS_TOKEN }}
           BLOG_GITHUB_TOKEN: ${{ secrets.BLOG_GITHUB_TOKEN }}
           BLOG_REPO_OWNER: ${{ secrets.BLOG_REPO_OWNER }}

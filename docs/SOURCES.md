@@ -180,6 +180,40 @@ state counts. The technical review queries are documented in `src/README.md`.
 
 Apple Health is the source used for published workout metrics and `workouts.yaml`.
 
+## Surfilog
+
+Tracks surfing sessions and individual waves through the same JSON API used by
+[Surfilog](https://surfilog.com). This is an internal website API and may change.
+
+**Commands**
+- `surfilog-sync`
+- `surfilog-analyze`
+
+**Required in `.env`**
+- `SURFILOG_EMAIL`
+- `SURFILOG_PASSWORD`
+
+Use your Surfilog email/password sign-in credentials. Google-only accounts do
+not support this login endpoint; a Google password is not a Surfilog password.
+Each sync logs in for a fresh cookie, verifies the account, and downloads every
+session's wave details. Cookies stay in memory, so the seven-day cookie lifetime
+does not require manually updating a token.
+
+`surfilog-sync` stores sessions, individual detected waves (including excluded
+waves), per-wave timestamped GPS coordinates and speeds, and full session tracks.
+`surfilog-analyze` syncs first, then recomputes all monthly totals. Months follow
+the session's recorded local date, with UTC used when the API has no offset;
+manually excluded waves do not count toward riding totals. Repeat syncs refresh
+corrections and removals without duplicating rides. Raw records stay in SQLite;
+the report and `surfing.yaml` contain monthly aggregates.
+
+Surfilog participates in `sync`, `analyze`, normal `publish`, and `backfill` when
+configured; missing credentials skip this optional source. Add the same two
+variables as repository Actions secrets for monthly automation. Configured
+authentication or download failures stop the pipeline rather than publish a
+partially downloaded surfing snapshot. The standalone login probe remains
+available as `uv run python scripts/surfilog_login.py`.
+
 ## Blog
 
 Tracks published blog posts from a public Hugo JSON index.

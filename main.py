@@ -31,6 +31,8 @@ Usage:
     python main.py schwab-analyze    # Analyze Schwab monthly P&L
     python main.py workflowy-sync    # Sync Workflowy nodes
     python main.py workflowy-analyze # Analyze monthly Workflowy node activity
+    python main.py surfilog-sync     # Sync Surfilog sessions and individual waves
+    python main.py surfilog-analyze  # Sync and analyze monthly surfing metrics
     python main.py publish           # Publish monthly report to data repo
     python main.py publish --dry-run # Validate config without publishing
     python main.py publish --skip-sync-analysis # Publish from current analysis data
@@ -139,6 +141,9 @@ def cmd_init():
     from src.workflowy.database import WorkflowyDatabase
     workflowy_db = WorkflowyDatabase()
     workflowy_db.init_tables()
+
+    from src.surfilog.database import SurfilogDatabase
+    SurfilogDatabase().init_tables()
     
     print("\nDone!")
 
@@ -251,6 +256,8 @@ def cmd_publish(dry_run: bool = False, skip_sync_analysis: bool = False, last_mo
             cmd_oura_analyze()
         except ValueError as e:
             print(f"Skipping Oura: {e}\n")
+
+        _run_optional_surfilog(cmd_surfilog_analyze)
     else:
         print("=== Skipping Sync And Analysis ===")
         print("Publishing from current analysis data...\n")
@@ -309,6 +316,8 @@ def cmd_backfill():
     except ValueError as e:
         print(f"Skipping Oura: {e}\n")
     
+    _run_optional_surfilog(cmd_surfilog_analyze)
+
     print("\n=== Backfilling Data ===")
     print("Generating and committing data files...")
     
@@ -576,6 +585,8 @@ def cmd_analyze():
     except Exception as e:
         print(f"  Error/skip: {e}")
 
+    _run_optional_surfilog(cmd_surfilog_analyze)
+
     print("\nAnalysis complete!")
 
 
@@ -822,6 +833,40 @@ def cmd_github_analyze():
     )
 
 
+def _run_optional_surfilog(operation):
+    """Skip an unconfigured source; configured sync failures must remain visible."""
+    print("\n--- Surfilog ---")
+    try:
+        Config.validate_surfilog()
+    except ValueError as error:
+        print(f"Skipping Surfilog: {error}")
+        return
+    operation()
+
+
+def cmd_surfilog_sync():
+    """Log in and sync every session, individual wave, and GPS track."""
+    from src.surfilog.sync import SurfilogSyncManager
+
+    Config.validate_surfilog()
+    SurfilogSyncManager().sync()
+
+
+def cmd_surfilog_analyze():
+    """Refresh Surfilog and recompute all monthly surfing metrics."""
+    from src.surfilog.database import SurfilogDatabase
+    from src.surfilog.analytics import SurfilogAnalytics
+
+    run_analysis(
+        sync_func=cmd_surfilog_sync,
+        db_cls=SurfilogDatabase,
+        analytics_cls=SurfilogAnalytics,
+        service_name="Surfilog surfing sessions",
+        analysis_method="analyze_sessions",
+        db_filename="surfilog.db",
+    )
+
+
 def cmd_sync():
     """Sync all services."""
     print("=== Syncing All Services ===\n")
@@ -919,6 +964,8 @@ def cmd_sync():
         cmd_workflowy_sync()
     except ValueError as e:
         print(f"Skipping Workflowy: {e}\n")
+
+    _run_optional_surfilog(cmd_surfilog_sync)
 
 
 def cmd_status():
@@ -1305,6 +1352,14 @@ def cmd_status():
     except Exception as e:
         print(f"  Error: {e}")
 
+    print("\n--- Surfilog ---")
+    try:
+        from src.surfilog.sync import SurfilogSyncManager
+        for key, value in SurfilogSyncManager().get_status().items():
+            print(f"  {key}: {value}")
+    except Exception as error:
+        print(f"  Error: {error}")
+
 
 def main():
     """Main entry point."""
@@ -1344,6 +1399,8 @@ def main():
     subparsers.add_parser("schwab-analyze", help="Analyze Schwab monthly P&L")
     subparsers.add_parser("workflowy-sync", help="Sync Workflowy nodes")
     subparsers.add_parser("workflowy-analyze", help="Analyze monthly Workflowy node activity")
+    subparsers.add_parser("surfilog-sync", help="Sync Surfilog sessions and individual waves")
+    subparsers.add_parser("surfilog-analyze", help="Sync and analyze monthly surfing metrics")
     subparsers.add_parser("status", help="Show sync status")
     subparsers.add_parser("backfill", help="Commit activity data files to configured repos")
     
@@ -1399,6 +1456,8 @@ def main():
         "schwab-analyze": cmd_schwab_analyze,
         "workflowy-sync": cmd_workflowy_sync,
         "workflowy-analyze": cmd_workflowy_analyze,
+        "surfilog-sync": cmd_surfilog_sync,
+        "surfilog-analyze": cmd_surfilog_analyze,
         "status": cmd_status,
     }
     

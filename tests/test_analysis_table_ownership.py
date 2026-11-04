@@ -17,6 +17,8 @@ from src.github.analytics import GitHubAnalytics
 from src.schwab.database import SchwabDatabase
 from src.workflowy.database import WorkflowyDatabase
 from src.workflowy.analytics import WorkflowyAnalytics
+from src.surfilog.database import SurfilogDatabase
+from src.surfilog.analytics import SurfilogAnalytics
 
 
 def _table_exists(db, table_name: str) -> bool:
@@ -40,6 +42,7 @@ def test_sync_side_init_only_creates_raw_tables(tmp_path):
         GitHubDatabase(str(tmp_path / "github.db")),
         SchwabDatabase(str(tmp_path / "schwab.db")),
         WorkflowyDatabase(str(tmp_path / "workflowy.db")),
+        SurfilogDatabase(str(tmp_path / "surfilog.db")),
     ]
 
     for db in dbs:
@@ -60,6 +63,7 @@ def test_analytics_creates_analysis_tables_when_missing(tmp_path):
         (HardcoverDatabase(str(tmp_path / "hardcover.db")), HardcoverAnalytics),
         (GitHubDatabase(str(tmp_path / "github.db")), GitHubAnalytics),
         (WorkflowyDatabase(str(tmp_path / "workflowy.db")), WorkflowyAnalytics),
+        (SurfilogDatabase(str(tmp_path / "surfilog.db")), SurfilogAnalytics),
     ]
 
     for db, analytics_cls in cases:
