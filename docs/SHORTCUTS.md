@@ -1,0 +1,255 @@
+# iPhone upload Shortcuts
+
+The phone sends workout exports to digital-data-uploader (DDU), which saves them
+in the private digital-data-vault (DDV) repository. digital-data-dump (D3) later
+imports those local files and computes monthly metrics.
+
+The Shortcuts themselves are maintained on the phone; no `.shortcut` export is
+checked into these repositories. This guide records their behavior and the
+request formats supported by DDU, rather than exact screenshots or action labels
+for a particular iOS/Actions version.
+
+## The two workflows
+
+| Shortcut | Phone input | DDU endpoint | Vault output | Delivery |
+| --- | --- | --- | --- | --- |
+| Apple Health | Recent workouts queried through Actions | `POST /v1/workout-batches` | `files/apple_health/actions/batches/<batch-id>.json` | Durable D1 inbox, then background/manual delivery |
+| Strong | Latest complete CSV export shared from Strong or Files | `POST /v1/strong-export` | `files/strong_workouts.csv` | Direct GitHub save before returning success |
+
+Uploading does not run D3, update its databases, or publish a report. Acceptance,
+vault archival, and D3 import are separate outcomes.
+
+## Connection settings
+
+Both Shortcuts use **Get Contents of URL**, with:
+
+- **Method:** `POST`.
+- **Authorization header:** `Bearer YOUR_UPLOAD_TOKEN`.
+- **Request Body:** **File**, selecting the final JSON Text or CSV file as
+  described below.
+- **Show Result** after the request while testing, to inspect the response.
+
+Use the upload token configured in DDU. The administrative token belongs on the
+trusted Mac/server, not in these phone Shortcuts.
+
+For a deployed Worker, use `https://<YOUR-WORKER>` as the base URL. For local
+testing, use `http://<MAC_NETWORK_IP>:8787`, with the phone and Mac on the same
+network and the local server running. `0.0.0.0` is a server listening address;
+the phone needs the Mac's actual network IP.
+
+DDU setup and deployment remain documented in its
+[README](https://github.com/yyl/digital-data-uploader/blob/main/README.md) and
+[implementation guide](https://github.com/yyl/digital-data-uploader/blob/main/docs/IMPL.md).
+No live endpoint URL or token is stored in this guide.
+
+## Apple Health: recent workouts to JSON
+
+### Phone action sequence
+
+1. Use the Actions app's workout query in Shortcuts to find workouts. The current
+   workflow selects the **100 most recent workouts**, sorted newest first. It
+   does not keep a last-sent cursor; overlap with previous uploads is expected.
+2. Repeat over the selected workouts. For each one, read its workout details and
+   construct a **Dictionary** using the exact keys below.
+3. Add each dictionary to a workout list. Keep measurements as **Text** values;
+   the upload contract requires strings even for numbers and Yes/No flags.
+4. After the repeat, wrap that list in a final dictionary with the single key
+   `workouts`. Preserve a list even when it contains only one workout. With no
+   results, send `{"workouts":[]}`.
+5. Use the existing dictionary-to-JSON text conversion step. The result must be
+   JSON text representing the final object, not a quoted/escaped JSON string.
+6. Send that final **Text** variable with **Get Contents of URL**:
+
+   | Setting | Value |
+   | --- | --- |
+   | URL | `<BASE_URL>/v1/workout-batches` |
+   | `Content-Type` header | `application/json` |
+   | Request Body | **File** → final JSON **Text** variable |
+
+Do not use a form field or wrap the serialized text in another JSON object.
+The body bytes should start with an object containing `workouts`.
+
+### Dictionary keys and formats
+
+The server accepts only these keys. Required values must be nonempty; optional
+values can be omitted or sent as an empty string. Use empty values for missing
+measurements rather than inventing zeroes.
+
+| Key | Required | Value sent by the phone |
+| --- | --- | --- |
+| `identifier` | Yes | The workout's stable UUID; reuse it on every export, never generate a new UUID per upload |
+| `type` | Yes | Activity label, such as `Climbing`, `Walking`, or `Traditional Strength Training` |
+| `start_date` | Yes | English date with 24-hour time, e.g. `Oct 15, 2026 at 08:31` |
+| `end_date` | Yes | Same date/time format as `start_date` |
+| `duration` | Yes | Seconds with the ` sec` suffix, e.g. `3488.907 sec` |
+| `elapsed_time` | No | Separate seconds value with the ` sec` suffix |
+| `energy_burned` | No | Number with ` kcal`, e.g. `407.883 kcal` |
+| `active_calories` | No | Unitless numeric text; DDU assumes kcal |
+| `average_heart_rate` | No | Unitless numeric text; DDU assumes bpm |
+| `total_distance` | No | Number followed by `m`, `km`, `mi`, `ft`, or `yd` |
+| `average_speed` | No | Number followed by `m/s`, `km/h`, `km/hr`, `mi/hr`, `mph`, or `kph` |
+| `flights_climbed` | No | Unitless whole-number text |
+| `source_name` | No | App/device source label supplied by the workout |
+| `device_name` | No | Device name, when available |
+| `device_model` | No | Device model, when available |
+| `recording_method` | No | Recording method label |
+| `is_from_watch` | No | `Yes` or `No` |
+| `is_from_third_party` | No | `Yes` or `No` |
+
+Keep duration and elapsed time separate, as exposed by the workout actions.
+D3 uses `duration` for new JSON-only workout duration and `energy_burned` for
+total calories, following the confirmed mapping policy. Some paused workouts
+have XML duration agreeing with JSON `elapsed_time`; D3 uses this as matching
+evidence while preserving the existing XML measurements.
+
+The UUID need not come from a particular UUID namespace, but it must consistently
+identify the same workout. DDU preserves its raw spelling and lowercases its
+normalized representation for comparisons.
+
+### Synthetic request example
+
+This is a minimal valid body; the on-phone workflow can include all optional
+fields from the table. It is the upload request, not DDU's later archive envelope.
+
+```json
+{
+  "workouts": [
+    {
+      "identifier": "00000000-0000-0000-0000-000000000001",
+      "type": "Climbing",
+      "start_date": "Oct 15, 2026 at 08:31",
+      "end_date": "Oct 15, 2026 at 09:30",
+      "duration": "3488.907 sec",
+      "energy_burned": "407.883 kcal"
+    }
+  ]
+}
+```
+
+### What DDU does next
+
+DDU authenticates the request and validates the entire batch. Limits are **100
+workouts** and **256 KiB** per request. A duplicate UUID within one batch,
+invalid field, or unsupported format rejects the batch before acceptance.
+
+The server retains raw fields and adds normalized quantities, timestamp
+provenance, and warnings. Phone dates omit seconds and timezone; DDU interprets
+them using its configured `ASSUMED_TIMEZONE` (default `America/Los_Angeles`).
+Dates that are ambiguous or nonexistent around a clock change remain unresolved.
+Travel or changing the phone's date formatting can require configuration review;
+the server cannot recover information the phone omitted.
+
+The validated envelope gets a deterministic batch ID and is saved to the D1
+inbox. An identical whole batch reuses its receipt even if dictionary or workout
+order changes. A new workout, changed field, or shifted recent-workout selection
+can create a new batch containing overlapping workouts. Workout-level filtering
+at DDU is intentionally deferred; D3 deduplicates those overlaps by UUID.
+
+| Response status | Meaning |
+| --- | --- |
+| `queued` | Durably accepted into D1; not yet confirmed in DDV |
+| `retrying` | Previously accepted; delivery is waiting for another attempt |
+| `archived` | Saved in DDV; receipt includes the Git commit SHA |
+| `empty` | No workouts selected; no batch created |
+| `failed` | Batch needs attention; inspect its error and retry from the server |
+
+Read the response's `status` and `error`, not just the HTTP code. A repeated
+request can return HTTP 202 with an existing retrying or failed receipt. Current
+responses use `record_count` (older versions used `workout_count`).
+
+Delivery is configured hourly on Cloudflare. During local testing, run the
+administrative retry from the Mac/server instead of assuming a timer is active.
+One delivery invocation processes at most three batches, including older pending
+ones. An archived receipt and the corresponding DDV file confirm delivery; a
+phone acceptance receipt alone does not.
+
+DDU clears archived payloads after seven days during delivery cleanup, retaining
+compact receipts. It keeps pending/failed payloads for recovery. Long-term raw
+archives live in DDV.
+
+### Scheduling, overlap, and backfill
+
+After manual upload and vault delivery work, a personal automation can run the
+Shortcut on a **Time of Day** schedule with **Run Immediately**. The documented
+starting schedule is weekly. Test actual scheduled runs while the phone is
+locked and unlocked; server-side delivery cannot recover workouts the phone
+never uploaded.
+
+A fixed count is not a fixed lookback period. If more than 100 workouts occur
+between successful runs, older unseen workouts can fall outside the selection.
+Backfill those gaps using a historical date filter and multiple requests of at
+most 100 workouts each, staying within the byte limit. Preserve original UUIDs.
+DDU also supports date-window selections, but that is an alternative to the
+current fixed-count query, not an additional default filter.
+
+The upload health check currently flags no successful upload for over 14 days.
+An empty or duplicate Apple Health upload also refreshes that timestamp; it is
+not proof that new workouts were archived or imported. Monthly schedules can
+cross this threshold. Strong uploads do not refresh this Apple Health timestamp.
+
+## Strong: share a complete CSV export
+
+1. Export the **complete workout history** from Strong as CSV.
+2. Run a Shortcut accepting **Files** from the share sheet, or use **Select File**
+   to choose the latest export. With the share-sheet version, enable **Show in
+   Share Sheet** and share the file from Strong or Files.
+3. Add **Get Contents of URL** using the shared connection settings and:
+
+   | Setting | Value |
+   | --- | --- |
+   | URL | `<BASE_URL>/v1/strong-export` |
+   | `Content-Type` header | `text/csv` |
+   | Request Body | **File** → exported CSV / Shortcut Input |
+
+4. Add **Show Result**. `status: saved` means GitHub confirmed the save;
+   `status: unchanged` means identical bytes were already present.
+
+Send one original CSV file, with `Content-Type: text/csv` explicitly set. Do not
+convert it to JSON or a multipart form. The limit is **512 KiB**; empty,
+header-only, or malformed exports are rejected.
+
+Each changed export replaces `files/strong_workouts.csv`; Git history retains
+previous versions. This route has no durable inbox, pending receipt, or automatic
+delivery retry. On failure, retain the file and resend it. A 409 conflict requires
+checking which export is now current before retrying, because a successful upload
+replaces that file.
+
+## Refresh D3 after archival
+
+Update the local DDV checkout before importing. From the D3 repository, run the
+commands for whichever source was uploaded:
+
+```sh
+uv run main.py apple-health-analyze
+uv run main.py strong-analyze
+uv run main.py publish --dry-run
+```
+
+The first two commands import local files and refresh their monthly analysis.
+The dry-run previews the report using existing analysis; it does not perform
+either import. Apple Health supplies Workout metrics; Strong supplies the
+separate Weightlifting section. Walks remain in the Apple Health database but
+are excluded from its published workout totals.
+
+Existing XML-derived rows are preserved. Automatic XML/JSON matching is limited
+to workouts starting August 1, 2026 onward; older observations without a saved
+alias are deliberately skipped. JSON-only archives do not replace the richer
+historical baseline. See [source setup](SOURCES.md#apple-health),
+[Strong setup](SOURCES.md#strong), and the
+[Apple Health JSON design](design/AH_JSON.md).
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Phone cannot reach the local server | Mac network IP, same network, server listening on `0.0.0.0`, local network/firewall permission |
+| 401 | Upload bearer token and Authorization header |
+| 413 | Workouts/count/byte limit; split the export into smaller requests |
+| 415 | Explicit `application/json` for Apple Health or `text/csv` for Strong; use a File body |
+| 422 | Required fields, string values, date/unit formats, duplicate UUIDs within a batch, or CSV structure |
+| Apple Health remains queued | Local admin retry or deployed delivery execution; inspect receipt/status on the trusted server |
+| New batch contains old workouts | Expected with a rolling selection; D3 deduplicates observations |
+| DDV has new files but reports look old | Update the local vault checkout and run the corresponding D3 analyze command |
+
+For server setup, administrative retry commands, and detailed error codes, use
+the [DDU implementation guide](https://github.com/yyl/digital-data-uploader/blob/main/docs/IMPL.md).
