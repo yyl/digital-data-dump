@@ -118,8 +118,8 @@ matching code and data snapshots; a date in the journal alone is insufficient.
 
 | Type | Sources | Ingestion Path |
 |------|---------|----------------|
-| API-backed | Readwise, Foursquare, Blog, Hardcover, GitHub, Oura, Schwab, Workflowy, Surfilog | `api_client.py` + `sync.py` |
-| File-backed | Letterboxd, Overcast, Strong, Apple Health | `importer.py` |
+| API-backed | Readwise, Foursquare, Blog, Hardcover, GitHub, Oura, Schwab, Workflowy, Surfilog, Strong | `api_client.py` + `sync.py` |
+| File-backed | Letterboxd, Overcast, Apple Health | `importer.py` |
 
 Letterboxd is hybrid in practice: it uses RSS for incremental sync, plus CSV export seeding when the DB is empty.
 
@@ -329,9 +329,26 @@ Letterboxd analysis writes:
 
 ### Strong
 
-- Imports Strong CSV workout exports into `strong.db`
+- Syncs Strong's unofficial API into `strong.db`; retains CSV import/recovery
 - Computes monthly workout/exercise/set metrics and supplies the published
   `Weightlifting` section through `StrongAnalytics.get_weightlifting_summary()`
+
+`api_client.py` logs in at `https://back.strong.app/auth/login`, reads standard
+and user exercise definitions, and downloads `include=log` from the authenticated
+user endpoint. Exercise pages follow `next` page numbers; workout pages follow
+continuation tokens. Exercise pages overlap in the live backend, so definitions
+are deduplicated by ID. Cursors never change the request host. Redirects, malformed
+responses, non-advancing cursors, duplicate logs, and unresolved exercise definitions fail the sync
+without printing credentials, tokens, or response bodies. No token file is used.
+
+`sync.py` validates all pages before replacing `workouts` and `exercises` in one
+transaction. It uses API UUIDs, removes deleted workouts, and clears stale
+`analysis` rows. `strong-analyze` regenerates those rows. Empty API histories
+cannot erase an existing history; changing accounts requires a separate database.
+`sync_state` records source, account ID, output units, fallback timezone, and
+last successful sync. A prior API snapshot prevents automatic CSV fallback when
+credentials disappear; `strong-sync --csv` explicitly replaces it from a full
+export and records CSV provenance. Legacy CSV-only databases remain readable.
 
 ### Strong metric definitions
 
@@ -341,19 +358,30 @@ months participate in publish's latest-month selection. Apple Health continues
 to supply the separate Workout section and `workouts.yaml`.
 
 - **Session selection:** the latest `started_at` inside the report's calendar
-  month, interpreted as the local timestamp recorded in the CSV. Ties use the
-  greatest workout ID. No fallback to an earlier month or workout with sets.
+  month, interpreted as the local timestamp recorded in the CSV or derived from
+  the API's UTC timestamp and workout timezone (`STRONG_TIMEZONE` fallback).
+  `started_at` omits offsets so SQLite preserves local calendar months. API
+  `started_at_utc` preserves absolute chronology for latest-session ordering,
+  including repeated DST hours and travel between timezones. Legacy CSV rows
+  have no absolute timestamp and retain local ordering. Ties use the greatest
+  workout ID. No fallback to an earlier month or workout with sets.
 - **Exercise identity and population:** exact, case-sensitive `exercise_name`;
   only exercises in the selected session, displayed in their first imported set
-  order. The importer groups sessions by CSV `Date` and skips Rest Timer and
-  other nonnumeric set-order rows. Every imported numeric set participates,
+  order. The CSV importer groups sessions by `Date` and skips Rest Timer and
+  other nonnumeric set-order rows. API sync excludes hidden workouts/groups/sets/
+  cells, explicitly incomplete sets, rest timers, and note-only sets. Legacy
+  sets without a completion flag remain eligible. Visible exercise notes are
+  attached to the first imported set. Every imported numeric set participates,
   without adjusting for reps, equipment, assisted weight, or bodyweight.
 - **Best weight:** `MAX(weight)` across the exercise's sets in that session.
   It is a session maximum, not a monthly best, all-time record, estimated 1RM,
   or volume measure. Zero remains zero; SQL NULL weights display as `N/A` when
   no set has a recorded weight. The importer represents blank CSV weights as
-  zero. No unit conversion occurs because the CSV contains no unit metadata;
-  comparable history requires consistent Strong export units.
+  zero. API kg weights are converted to `STRONG_WEIGHT_UNIT` (`lb` by default)
+  before storage; workout durations are elapsed whole minutes and set durations
+  are seconds. CSV weights retain their unspecified export units. Comparable
+  history requires consistent units; API snapshot replacement rebuilds the
+  entire history in the configured unit.
 - **Historical baseline:** the same exercise's maximum set weight in its latest
   session within the previous calendar month (MoM) or the same calendar month
   one year earlier (YoY). That session may precede the comparison month's final
@@ -364,14 +392,16 @@ to supply the separate Workout section and `workouts.yaml`.
   other report metrics. Missing exercises/months/weights and zero baselines
   yield `N/A`. A current zero against a positive baseline yields `-100%`.
 
-The query path is read-only, so reimporting a corrected/new export changes a
+The query path is read-only, so syncing corrected history changes a
 subsequently regenerated report without a schema migration. Previously published
 posts are unchanged until regenerated. An absent database, a month without
 workouts, or a latest workout without sets yields no Weightlifting section.
-Coverage is limited to imported exports; regression tests cover session versus
+Coverage is limited to synced history; regression tests cover session versus
 monthly maxima, calendar boundaries, sparse history, zero/missing weights,
 timer exclusion, repeat imports, and end-to-end markdown generation in
 [`test_strong_weightlifting.py`](../tests/test_strong_weightlifting.py).
+API pagination, normalization, migration, recovery, and transactional failure
+coverage is in [`test_strong_sync.py`](../tests/test_strong_sync.py).
 
 ### Apple Health
 
@@ -722,8 +752,12 @@ Analysis fields:
 
 Data tables:
 
-- `workouts`
+- `workouts`: local `started_at` for calendar grouping and nullable
+  `started_at_utc` for API chronology. Raw initialization adds the UTC column
+  to older databases; read-only reporting also supports the old schema.
 - `exercises`
+- `sync_state`: singleton source/account, weight unit, timezone, and successful
+  sync timestamp. This optional metadata is added when raw tables are initialized.
 
 Analysis fields:
 

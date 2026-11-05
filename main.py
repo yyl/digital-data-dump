@@ -612,12 +612,11 @@ def cmd_overcast_analyze():
     )
 
 
-def cmd_strong_sync():
-    """Import Strong workout data from CSV export."""
-    from src.strong.importer import StrongImporter
-    
-    importer = StrongImporter()
-    importer.sync()
+def cmd_strong_sync(from_csv=False):
+    """Sync Strong through the API, with explicit complete-CSV recovery."""
+    from src.strong.sync import StrongSyncManager
+
+    StrongSyncManager().sync(from_csv=from_csv)
 
 
 def cmd_strong_analyze():
@@ -1123,6 +1122,13 @@ def cmd_status():
         if "error" in status:
             print(f"  Error: {status['error']}")
         else:
+            state = importer.db.get_sync_state()
+            print(f"  source: {state['source'] if state else 'csv'}")
+            if state:
+                print(f"  last_successful_sync_at: {state['last_successful_sync_at']}")
+                if state.get('weight_unit'):
+                    print(f"  weight_unit: {state['weight_unit']}")
+                    print(f"  timezone: {state['timezone']}")
             for entity, count in status.get("database_stats", {}).items():
                 print(f"  {entity}: {count}")
             latest = status.get("latest_export")
@@ -1383,7 +1389,10 @@ def main():
     subparsers.add_parser("letterboxd-analyze", help="Analyze Letterboxd movies")
     subparsers.add_parser("overcast-sync", help="Import Overcast data")
     subparsers.add_parser("overcast-analyze", help="Analyze Overcast podcasts")
-    subparsers.add_parser("strong-sync", help="Import Strong workout data")
+    strong_sync_parser = subparsers.add_parser("strong-sync", help="Sync Strong workout data")
+    strong_sync_parser.add_argument(
+        "--csv", action="store_true", help="Replace Strong history with the latest complete CSV export"
+    )
     subparsers.add_parser("strong-analyze", help="Analyze Strong workouts")
     subparsers.add_parser("apple-health-sync", help="Import Apple Health workout data")
     subparsers.add_parser("apple-health-analyze", help="Analyze Apple Health workouts")
@@ -1469,6 +1478,8 @@ def main():
         )
     elif args.command == "backfill":
         cmd_backfill()
+    elif args.command == "strong-sync":
+        cmd_strong_sync(from_csv=args.csv)
     elif args.command in commands:
         commands[args.command]()
     else:

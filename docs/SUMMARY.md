@@ -146,9 +146,10 @@ workout, followed by a table with one row per exercise:
 Best weight is the highest recorded set weight for that exercise in that
 workout, rather than an all-time or monthly record. Comparisons use the same
 exercise's latest session in the previous calendar month and the same calendar
-month last year. Missing comparisons and zero baselines show `N/A`. Weights use
-the export's units without assuming kg or lb; bodyweight exercises retain their
-recorded zero weight.
+month last year. Missing comparisons and zero baselines show `N/A`. API-backed
+reports label the configured weight unit (`lb` or `kg`). CSV-backed reports use
+the export's unspecified units; bodyweight exercises retain their recorded zero
+weight.
 
 The section is omitted when the month has no Strong workout or its latest
 workout has no exercise sets. See the

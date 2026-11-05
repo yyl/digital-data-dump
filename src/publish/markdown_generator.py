@@ -431,10 +431,16 @@ categories: ["Summary"]
         """Show the latest Strong session's maximum recorded weight per exercise."""
         workout_name = self._clean_text(strong_data.get('workout_name'))
         workout_date = self._format_date(strong_data.get('started_at'))
+        unit = strong_data.get('weight_unit')
+        weight_description = (
+            f"Best set weight per exercise, in {'pounds (lb)' if unit == 'lb' else 'kilograms (kg)'}."
+            if unit in ('lb', 'kg') else
+            "Best set weight per exercise, in the units used in the Strong export."
+        )
         lines = [
             "", "## Weightlifting", "",
             f"**Latest workout**: {workout_date} — {workout_name}", "",
-            "Best set weight per exercise, in the units used in the Strong export.",
+            weight_description,
             "MoM and YoY compare each exercise's latest session in the previous month and the same month last year.",
             "",
             "| Exercise | Best weight | MoM | YoY |",

@@ -189,6 +189,10 @@ cross this threshold. Strong uploads do not refresh this Apple Health timestamp.
 
 ## Strong: share a complete CSV export
 
+This workflow is optional when [Strong API sync](SOURCES.md#strong) is configured.
+Normal sync then reads the API; use `uv run main.py strong-sync --csv` to explicitly
+replace the local history with an uploaded complete CSV export.
+
 The **Upload Strong Export** Shortcut receives the CSV from Strong's export
 share sheet and uploads it directly to DDU. Exporting the workout history and
 tapping the Shortcut in the share sheet are manual steps; the Shortcut handles

@@ -56,8 +56,8 @@ uv run main.py <command>
 | `workflowy-analyze` | Sync Workflowy and recompute monthly nodes added, modified, and removed |
 | `surfilog-sync` | Sync Surfilog sessions, individual waves, and GPS tracks |
 | `surfilog-analyze` | Sync Surfilog and recompute monthly surfing metrics |
-| `strong-sync` | Import the latest Strong workout CSV from the storage root |
-| `strong-analyze` | Import Strong data and refresh monthly analysis for Weightlifting |
+| `strong-sync` | Sync Strong through the API when configured; `--csv` replaces history from a complete export |
+| `strong-analyze` | Sync Strong data and refresh monthly analysis for Weightlifting |
 | `apple-health-sync` | Import local DDU Apple Health JSON archives, preserving existing history |
 | `apple-health-analyze` | Import Apple Health JSON archives and recompute monthly workout metrics |
 | `{source}-sync` | Sync one source |

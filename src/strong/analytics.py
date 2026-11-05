@@ -31,11 +31,17 @@ class StrongAnalytics:
         with self.db.read_connection(required_tables=("workouts", "exercises")) as conn:
             if conn is None:
                 return None
-            workout = conn.execute("""
-                SELECT id, workout_name, started_at
-                FROM workouts
-                WHERE strftime('%Y-%m', started_at) = ?
-                ORDER BY datetime(started_at) DESC, id DESC
+            # Calendar grouping stays local; chronology uses the absolute API
+            # timestamp across DST folds and workouts recorded in other zones.
+            # Old CSV schemas remain readable without a write-side migration.
+            columns = {row['name'] for row in conn.execute('PRAGMA table_info(workouts)')}
+            chronology = ('COALESCE(w.started_at_utc, w.started_at)'
+                          if 'started_at_utc' in columns else 'w.started_at')
+            workout = conn.execute(f"""
+                SELECT w.id, w.workout_name, w.started_at
+                FROM workouts w
+                WHERE strftime('%Y-%m', w.started_at) = ?
+                ORDER BY julianday({chronology}) DESC, w.id DESC
                 LIMIT 1
             """, (year_month,)).fetchone()
             if workout is None:
@@ -51,11 +57,16 @@ class StrongAnalytics:
             if not exercises:
                 return None
 
+            state = None
+            if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                            "AND name = 'sync_state'").fetchone():
+                state = conn.execute("SELECT weight_unit FROM sync_state WHERE id = 1").fetchone()
+
             history = {}
             for comparison, month in periods.items():
-                rows = conn.execute("""
+                rows = conn.execute(f"""
                     WITH session_weights AS (
-                        SELECT e.exercise_name, w.id, w.started_at,
+                        SELECT e.exercise_name, w.id, {chronology} AS chronology,
                                MAX(e.weight) AS weight
                         FROM exercises e
                         JOIN workouts w ON w.id = e.workout_id
@@ -65,7 +76,7 @@ class StrongAnalytics:
                         SELECT exercise_name, weight,
                                ROW_NUMBER() OVER (
                                    PARTITION BY exercise_name
-                                   ORDER BY datetime(started_at) DESC, id DESC
+                                   ORDER BY julianday(chronology) DESC, id DESC
                                ) AS recency
                         FROM session_weights
                     )
@@ -81,11 +92,14 @@ class StrongAnalytics:
                 for comparison, weights in history.items()
             }
 
-        return {
+        summary = {
             'workout_name': workout['workout_name'],
             'started_at': workout['started_at'],
             'exercises': exercises,
         }
+        if state and state['weight_unit']:
+            summary['weight_unit'] = state['weight_unit']
+        return summary
 
     def _ensure_analysis_table(self) -> None:
         """Create analysis table if it doesn't exist."""

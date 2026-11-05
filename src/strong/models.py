@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS workouts (
     id TEXT PRIMARY KEY NOT NULL,
     workout_name TEXT NOT NULL,
     started_at TEXT NOT NULL,
+    started_at_utc TEXT,
     duration_minutes INTEGER NOT NULL DEFAULT 0,
     notes TEXT,
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
@@ -43,6 +44,16 @@ CREATE TABLE IF NOT EXISTS analysis (
 RAW_TABLES = [
     CREATE_WORKOUTS_TABLE,
     CREATE_EXERCISES_TABLE,
+    """
+    CREATE TABLE IF NOT EXISTS sync_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        source TEXT NOT NULL,
+        user_id TEXT,
+        weight_unit TEXT,
+        timezone TEXT,
+        last_successful_sync_at TEXT NOT NULL
+    );
+    """,
 ]
 
 RAW_INDEXES = [

@@ -114,29 +114,52 @@ After importing the OPML, `overcast-sync` fetches podcast RSS feeds and fills mi
 
 ## Strong
 
-Imports workouts from Strong CSV export.
+Syncs workout history through Strong's unofficial backend API. CSV import is
+available for accounts without API credentials and for explicit recovery.
 
 **Commands**
 - `strong-sync`
 - `strong-analyze`
 
-**Required in `.env`**
-- None
+**Required in `.env` for API sync**
+- `STRONG_USER`: Strong username or email
+- `STRONG_PASS`: Strong account password
 
-Place the Strong CSV export at `<storage-root>/files/strong_workouts.csv`
+**Optional in `.env`**
+- `STRONG_WEIGHT_UNIT`: `lb` (default) or `kg`; API weights are stored in kg
+  and converted before saving. The default matches this project's CSV history.
+- `STRONG_TIMEZONE`: IANA timezone, default `America/Los_Angeles`. Used when
+  the API workout has no timezone so monthly dates match the local CSV dates.
+
+`strong-sync` logs in afresh, downloads the complete history, validates it, then
+replaces the local workout snapshot. Tokens remain in memory. API failures
+preserve the previous snapshot and do not fall back to a stale CSV. This is an
+undocumented API and may change. Endpoint research:
+[strong-exporter](https://github.com/TheAlexLichter/strong-exporter).
+
+For GitHub Actions, add `STRONG_USER` and `STRONG_PASS` repository secrets.
+Optional repository variables `STRONG_WEIGHT_UNIT` and `STRONG_TIMEZONE` use the
+same defaults as local runs.
+
+For CSV recovery, place a **complete** Strong export at `<storage-root>/files/strong_workouts.csv`
 (normally `digital-data-vault/files/strong_workouts.csv`). Exports named
 `strong_workouts*.csv` are supported; sync imports the file with the newest
-modification time. No credentials are needed.
+modification time. Run `uv run main.py strong-sync --csv` to replace the database
+from that export without credentials. This can roll the history back to the
+export's date. With no API credentials and no prior API snapshot, normal sync
+keeps the existing automatic CSV import behavior. After an API sync, missing
+credentials require an explicit `--csv` to avoid mixing timestamp and UUID IDs.
 
-Run `uv run main.py strong-analyze` to import the export and refresh monthly
+Run `uv run main.py strong-analyze` to sync and refresh monthly
 analysis, then `uv run main.py publish --dry-run` to preview the report.
 Normal `publish` refreshes Strong automatically; `--dry-run` and
 `--skip-sync-analysis` use existing database contents.
 
 Strong powers the published **Weightlifting** section, with the latest workout's
-best set weight per exercise and MoM/YoY comparisons when available. The export
-does not identify weight units: keep the same Strong unit settings between
-exports so the values remain comparable. See the
+best set weight per exercise and MoM/YoY comparisons when available. API reports
+identify the configured weight unit. CSV exports do not identify weight units:
+keep the same Strong unit settings between exports so the values remain
+comparable. See the
 [calculation rules](../src/README.md#strong-metric-definitions).
 
 ## Apple Health

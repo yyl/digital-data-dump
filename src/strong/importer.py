@@ -7,6 +7,7 @@ from typing import Optional, Dict, Any, List
 from collections import defaultdict
 
 from ..config import Config
+from ..time_utils import utc_now_iso
 from .database import StrongDatabase
 
 
@@ -60,7 +61,7 @@ class StrongImporter:
         
         return csv_files[0] if csv_files else None
     
-    def import_from_file(self, csv_path: Path) -> Dict[str, int]:
+    def import_from_file(self, csv_path: Path, *, replace: bool = False) -> Dict[str, int]:
         """Import all workout data from a Strong CSV export.
         
         Args:
@@ -117,7 +118,9 @@ class StrongImporter:
                 exercises[workout_id].append(exercise)
         
         # Upsert workouts and their exercises
-        saved_stats = self.db.save_workouts(workouts, exercises)
+        saved_stats = self.db.save_workouts(workouts, exercises, snapshot={
+            "source": "csv", "last_successful_sync_at": utc_now_iso(),
+        } if replace else None)
         stats["workouts"] = saved_stats["workouts"]
         stats["exercises"] = saved_stats["exercises"]
         

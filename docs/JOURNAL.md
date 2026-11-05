@@ -3,6 +3,40 @@
 Record meaningful project changes here, newest first. Each entry explains what
 changed, why, and where to find the design, usage, and implementation details.
 
+## 2026-11-04 — Sync Strong workout history through its backend API
+
+`strong-sync` now uses Strong's unofficial backend when `STRONG_USER` and
+`STRONG_PASS` are configured. Fresh authentication, standard/custom exercise
+pagination, and workout continuation pages replace the manual CSV upload step.
+Tokens stay in memory and errors omit response bodies and secrets.
+
+The validated full history replaces workouts and sets atomically, migrating CSV
+timestamp IDs to API UUIDs and reflecting corrections/deletions. Failed, empty,
+or different-account downloads cannot erase an existing history. CSV import
+remains available, with explicit `strong-sync --csv` recovery after API migration
+to prevent accidental merges or rollback to an old uploaded file.
+
+The API includes hidden/deleted groups, sets, and cells that CSV omits. Sync
+filters them and incomplete numeric sets, retains visible exercise notes even
+when their completion flag is false, converts kg to the configured weight unit,
+and stores local calendar dates. Defaults preserve this project's pounds and
+Pacific-time history. All shared CSV workouts, set fields, and historical
+monthly weightlifting summaries matched an independent API snapshot comparison.
+Reports label known API weight units. GitHub Actions accepts Strong credential
+secrets and optional unit/timezone variables.
+
+Independent review found two edge cases, both addressed: missing expected
+collections on API pages now fail rather than silently truncating a snapshot;
+UTC timestamps are retained for latest-session ordering while calendar grouping
+stays local, including the repeated DST hour. Regression tests cover snapshot
+preservation on a malformed final page and legacy-schema migration/readability.
+
+See [source setup](SOURCES.md#strong), [sync internals](../src/README.md#strong),
+[report rules](SUMMARY.md#weightlifting), and
+[API regression coverage](../tests/test_strong_sync.py). `make test-ci` passed
+all 483 tests. Live migration and SQLite integrity/foreign-key checks passed;
+latest-month and previous-month report dry runs rendered the API data correctly.
+
 ## 2026-11-04 — Add Surfilog surfing sessions and individual waves
 
 Adds the Surfilog API source with fresh cookie authentication on each sync and

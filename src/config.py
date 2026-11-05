@@ -96,6 +96,11 @@ class Config:
     # Strong Configuration
     # ==========================================================================
     STRONG_DATABASE_PATH = DATA_DIR / "strong.db"
+    STRONG_USER: str = os.getenv("STRONG_USER", "").strip()
+    STRONG_PASS: str = os.getenv("STRONG_PASS", "")
+    # Match the existing CSV history: pounds and Pacific local calendar dates.
+    STRONG_WEIGHT_UNIT: str = _env_or_default("STRONG_WEIGHT_UNIT", "lb").lower()
+    STRONG_TIMEZONE: str = _env_or_default("STRONG_TIMEZONE", "America/Los_Angeles")
 
     # ==========================================================================
     # Apple Health Configuration
