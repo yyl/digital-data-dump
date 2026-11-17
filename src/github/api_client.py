@@ -189,3 +189,20 @@ class GitHubActivityClient:
                 if isinstance(data, dict) and data.get("message") == "Git Repository is empty.":
                     return []
             raise
+
+    def get_commit_line_stats(self, owner: str, repo: str, sha: str) -> tuple[int, int] | None:
+        """Get additions and deletions for a SHA that GitHub can still serve."""
+        try:
+            response = self._get(f"/repos/{owner}/{repo}/commits/{sha}", params={"per_page": 1})
+        except requests.HTTPError as error:
+            if error.response is not None and error.response.status_code == 404:
+                return None
+            raise
+
+        stats = response.json().get("stats")
+        if stats is None:
+            return None
+        additions, deletions = stats["additions"], stats["deletions"]
+        if any(type(count) is not int or count < 0 for count in (additions, deletions)):
+            raise ValueError("Invalid commit line counts")
+        return additions, deletions

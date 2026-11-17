@@ -417,6 +417,18 @@ categories: ["Summary"]
                 count = int(github_data.get(metric, 0))
                 suffix = format_comparison_suffix(comparisons.get(metric))
                 lines.append(f'- **{title}**: {count}{suffix}')
+        for title, metric in [('Lines Added', 'additions'), ('Lines Deleted', 'deletions')]:
+            keys = (f'public_{metric}', f'private_{metric}')
+            if all(github_data.get(key) is None for key in keys):
+                continue
+            lines.append(f'- **{title}**:')
+            for visibility, key in zip(('Public', 'Private'), keys):
+                count = github_data.get(key)
+                if count is None:
+                    lines.append(f'    - {visibility}: N/A')
+                else:
+                    suffix = format_comparison_suffix(comparisons.get(key))
+                    lines.append(f'    - {visibility}: {count:,}{suffix}')
         stats = '\n'.join(lines)
         
         return f"""

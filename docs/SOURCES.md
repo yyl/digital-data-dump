@@ -291,8 +291,10 @@ CODEBASE_GITHUB_TOKEN=your_read_only_activity_token
 ```
 
 Run `uv run main.py github-analyze` to sync accessible history and recalculate
-monthly public/private counts and their historical comparisons. Repeated runs
-fetch incrementally. Private activity contributes to its own counts; its
+monthly public/private counts and their historical comparisons. The first run
+after upgrading fetches line counts for stored commits in repos you can still
+access. Later runs fetch line counts for new commits and retry unavailable
+counts. Private activity contributes to its own counts; its
 repository names, links, and commit messages are excluded from
 published reports. The local `github.db` still contains those details and belongs
 in your private data repository.

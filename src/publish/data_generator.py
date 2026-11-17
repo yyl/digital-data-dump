@@ -13,7 +13,7 @@ from ..apple_health.database import AppleHealthDatabase
 from ..blog.database import BlogDatabase
 from ..hardcover.database import HardcoverDatabase
 from ..github.database import GitHubDatabase
-from ..github.models import VISIBILITY_METRICS
+from ..github.models import LINE_CHANGE_METRICS, VISIBILITY_METRICS
 from ..oura.database import OuraDatabase
 from ..surfilog.database import SurfilogDatabase
 from ..surfilog.models import METRICS as SURFILOG_METRICS
@@ -263,6 +263,8 @@ class DataGenerator:
             }
             if all(row.get(metric) is not None for metric in VISIBILITY_METRICS):
                 record.update({metric: row[metric] for metric in VISIBILITY_METRICS})
+            record.update({metric: row[metric] for metric in LINE_CHANGE_METRICS
+                           if row.get(metric) is not None})
             records.append(record)
         return records
 

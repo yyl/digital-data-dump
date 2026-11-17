@@ -24,6 +24,7 @@ class GitHubDatabase(BaseDatabase):
     def init_tables(self) -> None:
         """Create raw sync tables if they don't exist."""
         with self.get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             cursor = conn.cursor()
             cursor.execute(models.CREATE_COMMITS_TABLE)
             columns = {row["name"] for row in cursor.execute("PRAGMA table_info(commits)")}
@@ -36,7 +37,27 @@ class GitHubDatabase(BaseDatabase):
                 cursor.execute(
                     "ALTER TABLE commits ADD COLUMN is_discoverable INTEGER NOT NULL DEFAULT 1"
                 )
+            for column in ("additions", "deletions"):
+                if column not in columns:
+                    cursor.execute(f"ALTER TABLE commits ADD COLUMN {column} INTEGER")
         print(f"GitHub database initialized at: {self.db_path}")
+
+    def get_shas_missing_line_stats(self, repo: str) -> List[str]:
+        """Return stored commits that still need line counts, newest first."""
+        with self.get_connection() as conn:
+            return [row["sha"] for row in conn.execute("""
+                SELECT sha FROM commits
+                WHERE repo = ? COLLATE NOCASE AND (additions IS NULL OR deletions IS NULL)
+                ORDER BY author_date DESC, sha
+            """, (repo,))]
+
+    def update_line_stats(self, sha: str, additions: int, deletions: int) -> None:
+        """Cache per-commit line counts without changing the stored repository."""
+        with self.get_connection() as conn:
+            conn.execute(
+                "UPDATE commits SET additions = ?, deletions = ? WHERE sha = ?",
+                (additions, deletions, sha),
+            )
 
     def update_repo_visibility(self, repos: List[Dict[str, Any]]) -> None:
         """Refresh visibility for stored commits, even when no new commits exist.

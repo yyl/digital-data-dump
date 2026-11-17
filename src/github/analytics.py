@@ -3,7 +3,7 @@
 from typing import Optional
 
 from .database import GitHubDatabase
-from .models import CREATE_ANALYSIS_TABLE, ANALYSIS_INDEXES, VISIBILITY_METRICS
+from .models import CREATE_ANALYSIS_TABLE, ANALYSIS_INDEXES, LINE_CHANGE_METRICS, VISIBILITY_METRICS
 from ..time_utils import utc_now_iso
 
 
@@ -21,9 +21,10 @@ class GitHubAnalytics:
     def _ensure_analysis_table(self) -> None:
         """Create analysis table if it doesn't exist."""
         with self.db.get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             conn.execute(CREATE_ANALYSIS_TABLE)
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(analysis)")}
-            for metric in VISIBILITY_METRICS:
+            for metric in (*VISIBILITY_METRICS, *LINE_CHANGE_METRICS):
                 if metric not in columns:
                     # Leave old values unknown until raw commits are re-aggregated.
                     conn.execute(f"ALTER TABLE analysis ADD COLUMN {metric} INTEGER")
@@ -36,13 +37,17 @@ class GitHubAnalytics:
         Groups commits by date_month and computes:
         - commits and repos_touched: combined totals
         - public/private commits and distinct repos touched
+        - public/private additions and deletions when all counts are known
         
         Returns:
             Number of monthly records written.
         """
         self._ensure_analysis_table()
 
+        now = utc_now_iso()
+        count = 0
         with self.db.get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             cursor = conn.cursor()
             
             cursor.execute("""
@@ -50,19 +55,25 @@ class GitHubAnalytics:
                        SUM(CASE WHEN is_private = 0 THEN 1 ELSE 0 END) AS public_commits,
                        SUM(CASE WHEN is_private = 1 THEN 1 ELSE 0 END) AS private_commits,
                        COUNT(DISTINCT CASE WHEN is_private = 0 THEN repo END) AS public_repos_touched,
-                       COUNT(DISTINCT CASE WHEN is_private = 1 THEN repo END) AS private_repos_touched
+                       COUNT(DISTINCT CASE WHEN is_private = 1 THEN repo END) AS private_repos_touched,
+                       CASE WHEN COUNT(*) FILTER (WHERE is_private = 0 AND additions IS NULL) = 0
+                            THEN COALESCE(SUM(additions) FILTER (WHERE is_private = 0), 0)
+                       END AS public_additions,
+                       CASE WHEN COUNT(*) FILTER (WHERE is_private = 1 AND additions IS NULL) = 0
+                            THEN COALESCE(SUM(additions) FILTER (WHERE is_private = 1), 0)
+                       END AS private_additions,
+                       CASE WHEN COUNT(*) FILTER (WHERE is_private = 0 AND deletions IS NULL) = 0
+                            THEN COALESCE(SUM(deletions) FILTER (WHERE is_private = 0), 0)
+                       END AS public_deletions,
+                       CASE WHEN COUNT(*) FILTER (WHERE is_private = 1 AND deletions IS NULL) = 0
+                            THEN COALESCE(SUM(deletions) FILTER (WHERE is_private = 1), 0)
+                       END AS private_deletions
                 FROM commits
                 WHERE date_month IS NOT NULL AND date_month != ''
                 GROUP BY date_month
                 ORDER BY date_month
             """)
             rows = cursor.fetchall()
-        
-        now = utc_now_iso()
-        count = 0
-        
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
             
             for row in rows:
                 year_month = row["date_month"]
@@ -76,9 +87,10 @@ class GitHubAnalytics:
                     INSERT INTO analysis (
                         year_month, year, month, commits, repos_touched,
                         public_commits, private_commits, public_repos_touched,
-                        private_repos_touched, updated_at
+                        private_repos_touched, public_additions, private_additions,
+                        public_deletions, private_deletions, updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(year_month) DO UPDATE SET
                         commits = excluded.commits,
                         repos_touched = excluded.repos_touched,
@@ -86,10 +98,14 @@ class GitHubAnalytics:
                         private_commits = excluded.private_commits,
                         public_repos_touched = excluded.public_repos_touched,
                         private_repos_touched = excluded.private_repos_touched,
+                        public_additions = excluded.public_additions,
+                        private_additions = excluded.private_additions,
+                        public_deletions = excluded.public_deletions,
+                        private_deletions = excluded.private_deletions,
                         updated_at = excluded.updated_at
                 """, (
                     year_month, year, month, row["commits"], row["repos_touched"],
-                    *(row[metric] for metric in VISIBILITY_METRICS), now,
+                    *(row[metric] for metric in (*VISIBILITY_METRICS, *LINE_CHANGE_METRICS)), now,
                 ))
                 count += 1
         

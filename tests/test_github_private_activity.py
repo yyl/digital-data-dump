@@ -54,6 +54,7 @@ def test_private_history_counts_without_publishing_details(db, capsys):
     private_commit = api_commit("private-sha", "Confidential project milestone")
     public_commit = api_commit("public-sha", "Public project update")
     api.get_commits.side_effect = [[public_commit], [private_commit]]
+    api.get_commit_line_stats.side_effect = [(12, 3), (42, 0)]
     manager = GitHubSyncManager(db=db, api=api)
 
     assert manager.sync() == {"commits": 2, "repos": 2}
@@ -63,6 +64,7 @@ def test_private_history_counts_without_publishing_details(db, capsys):
     # An inclusive incremental fetch must not count either SHA twice.
     api.get_commits.side_effect = [[public_commit], [private_commit]]
     assert manager.sync() == {"commits": 0, "repos": 0}
+    assert api.get_commit_line_stats.call_count == 2
     api.get_commits.assert_any_call("user", "secret", since="2026-10-01T12:00:00Z")
     assert db.get_stats() == {"commits": 2, "repos": 2}
     assert GitHubAnalytics(db=db).analyze_commits() == 1
@@ -77,6 +79,8 @@ def test_private_history_counts_without_publishing_details(db, capsys):
     markdown = publisher.generate_markdown("2026-10")
     assert "- **Commits**:\n    - Public: 1 (N/A MoM, N/A YoY)\n    - Private: 1" in markdown
     assert "- **Repos Touched**:\n    - Public: 1 (N/A MoM, N/A YoY)\n    - Private: 1" in markdown
+    assert "- **Lines Added**:\n    - Public: 12 (N/A MoM, N/A YoY)\n    - Private: 42" in markdown
+    assert "- **Lines Deleted**:\n    - Public: 3 (N/A MoM, N/A YoY)\n    - Private: 0" in markdown
     assert "Public project update" in markdown
     assert "user/secret" not in markdown
     assert "Confidential" not in markdown
@@ -87,7 +91,9 @@ def test_private_history_counts_without_publishing_details(db, capsys):
     assert generator._get_all_github() == [
         {"month": "2026-10", "commits": 2, "repos_touched": 2,
          "public_commits": 1, "private_commits": 1,
-         "public_repos_touched": 1, "private_repos_touched": 1},
+         "public_repos_touched": 1, "private_repos_touched": 1,
+         "public_additions": 12, "private_additions": 42,
+         "public_deletions": 3, "private_deletions": 0},
     ]
     with db.get_connection() as conn:
         private = conn.execute("SELECT * FROM commits WHERE sha = 'private-sha'").fetchone()
@@ -101,6 +107,7 @@ def test_visibility_updates_without_new_commits(db, new_visibility):
     api.get_owned_repos.return_value = [repository("project", private=new_visibility is False)]
     commit = api_commit("sha", "Project work")
     api.get_commits.return_value = [commit]
+    api.get_commit_line_stats.return_value = (7, 2)
     manager = GitHubSyncManager(db=db, api=api)
     manager.sync()
 
@@ -119,6 +126,41 @@ def test_visibility_updates_without_new_commits(db, new_visibility):
     # Losing discovery hides details without reclassifying public activity as private.
     assert stats["private_commits"] == int(new_visibility is True)
     assert stats["public_commits"] == int(new_visibility is not True)
+    assert stats["private_additions"] == (7 if new_visibility is True else 0)
+    assert stats["public_additions"] == (0 if new_visibility is True else 7)
+    api.get_commit_line_stats.assert_called_once()
+
+
+def test_line_stats_backfill_retries_missing_shas_and_omits_partial_totals(db):
+    add_month(db, "2026-09", 2, 1, 1, 1)
+    add_month(db, "2026-10", 1, 0, 1, 1)
+    api = MagicMock()
+    api.get_owned_repos.return_value = [repository("public-0"), repository("private-0", private=True)]
+    api.get_commits.return_value = []
+    api.get_commit_line_stats.side_effect = [(15, 1), (5, 2), None, (2, 3)]
+    manager = GitHubSyncManager(db=db, api=api)
+    analytics = GitHubAnalytics(db=db)
+    generator = DataGenerator.__new__(DataGenerator)
+    generator.github_activity_db = db
+    publisher = publisher_for(db)
+
+    manager.sync()
+    analytics.analyze_commits()
+    september, october = generator._get_all_github()
+    assert "public_additions" not in september
+    assert "public_deletions" not in september
+    assert september["private_additions"] == 2
+    assert october["private_additions"] == 0
+    assert "    - Public: N/A\n    - Private: 2" in publisher.generate_markdown("2026-09")
+
+    api.get_commit_line_stats.reset_mock()
+    api.get_commit_line_stats.side_effect = None
+    api.get_commit_line_stats.return_value = (5, 1)
+    manager.sync()
+    analytics.analyze_commits()
+    api.get_commit_line_stats.assert_called_once_with("user", "public-0", "2026-09-public-1")
+    assert generator._get_all_github()[0]["public_additions"] == 10
+    assert "    - Public: 15 (+50% MoM, N/A YoY)" in publisher.generate_markdown("2026-10")
 
 
 def test_legacy_public_database_preview_and_migration(tmp_path, monkeypatch):
@@ -148,6 +190,8 @@ def test_legacy_public_database_preview_and_migration(tmp_path, monkeypatch):
         row = conn.execute("SELECT * FROM commits").fetchone()
         assert row["is_private"] == 0
         assert row["message"] == "Existing public commit"
+        assert row["additions"] is None
+        assert row["deletions"] is None
     assert publisher._get_new_github_repos("2026-10") == ["user/public"]
 
 

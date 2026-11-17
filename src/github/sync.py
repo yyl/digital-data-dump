@@ -146,7 +146,24 @@ class GitHubSyncManager:
                 print(f"  {label}: {count} commits")
         
         print(f"Synced {total_commits} commits from {repos_with_commits} repos")
+        self._sync_line_stats(repos)
         return {"commits": total_commits, "repos": repos_with_commits}
+
+    def _sync_line_stats(self, repos: list[dict[str, Any]]) -> None:
+        """Fill missing line counts for new commits and discovered history."""
+        updated = 0
+        unavailable = 0
+        for repo in repos:
+            for sha in self.db.get_shas_missing_line_stats(repo["full_name"]):
+                stats = self.api.get_commit_line_stats(repo["owner"]["login"], repo["name"], sha)
+                if stats is None:
+                    unavailable += 1
+                    continue
+                # Persist each result so an interrupted backfill can resume.
+                self.db.update_line_stats(sha, *stats)
+                updated += 1
+        if updated or unavailable:
+            print(f"Fetched line counts for {updated} commits ({unavailable} unavailable)")
     
     def get_status(self) -> Dict[str, Any]:
         """Get sync status.

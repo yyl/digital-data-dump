@@ -178,6 +178,7 @@ Shows:
 
 - commits, split into Public and Private
 - repos touched, split into Public and Private
+- lines added and lines deleted, split into Public and Private
 
 Each visibility group has its own MoM and YoY comparison:
 
@@ -194,12 +195,19 @@ Comparisons show `N/A` when the relevant previous period is missing or zero.
 Existing combined analysis continues to render as combined totals until
 `github-analyze` recalculates the visibility breakdown for all stored months.
 
+Line counts include text changes across all files, including documentation and
+generated files. For each month and visibility group, a missing commit's line
+counts make that group's totals unavailable. The report shows `N/A` if the
+other group has a total. `code.yaml` includes the available fields
+`public_additions`, `private_additions`, `public_deletions`, and
+`private_deletions`.
+
 It also includes:
 
 - a ranked repo summary table
 - grouped commit tables
 
-Commit and repo counts include synced private activity. Repo summaries, grouped
+Aggregate counts include synced private activity. Repo summaries, grouped
 commit tables, and new-repo lists show public repositories only; private repo
 names, links, and commit messages are omitted. Merge commits of the form
 `Merge pull request #...` are excluded from detail tables, while totals count all

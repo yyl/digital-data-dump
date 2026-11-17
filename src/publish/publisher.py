@@ -17,7 +17,7 @@ from ..apple_health.database import AppleHealthDatabase
 from ..blog.database import BlogDatabase
 from ..hardcover.database import HardcoverDatabase
 from ..github.database import GitHubDatabase
-from ..github.models import VISIBILITY_METRICS
+from ..github.models import LINE_CHANGE_METRICS, VISIBILITY_METRICS
 from ..oura.database import OuraDatabase
 from ..surfilog.database import SurfilogDatabase
 from ..surfilog.models import METRICS as SURFILOG_METRICS
@@ -832,12 +832,12 @@ class Publisher:
                 current_stats=github,
                 historical_getter=self._get_github_analysis,
                 year_month=year_month,
-                metrics=['commits', 'repos_touched', *VISIBILITY_METRICS]
+                metrics=['commits', 'repos_touched', *VISIBILITY_METRICS, *LINE_CHANGE_METRICS]
             )
             data['github'] = {
                 'commits': github['commits'],
                 'repos_touched': github['repos_touched'],
-                **{metric: github.get(metric) for metric in VISIBILITY_METRICS},
+                **{metric: github.get(metric) for metric in (*VISIBILITY_METRICS, *LINE_CHANGE_METRICS)},
                 'commit_groups': self._group_commits_by_repo(
                     self._get_github_commits(year_month)
                 ),

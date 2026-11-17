@@ -164,7 +164,7 @@ Current activity files:
 | `workouts.yaml` | Apple Health | `workouts`, `total_minutes`, `total_calories` |
 | `writing.yaml` | Blog | `posts`, `total_words`, `unique_tags` |
 | `books.yaml` | Hardcover | `books_finished`, `avg_rating` |
-| `code.yaml` | GitHub | `commits`, `repos_touched` (combined), `public_commits`, `private_commits`, `public_repos_touched`, `private_repos_touched` |
+| `code.yaml` | GitHub | Combined commits and repos touched, plus public/private commits, repos touched, additions, and deletions |
 | `sleep.yaml` | Oura Ring | `median_sleep_score`, `avg_sleep_score`, `median_readiness_score`, `avg_readiness_score` |
 | `surfing.yaml` | Surfilog | `sessions`, `waves`, `total_duration_seconds`, `surf_time_seconds`, `surf_distance_m`, `paddling_distance_m`, `max_speed_kmh`, `longest_wave_m`, `max_wave_seconds` |
 
@@ -475,6 +475,7 @@ See `docs/design/AH_JSON.md` for the agreed scope and audited coverage.
 - Verifies the token owner matches `CODEBASE_USERNAME`, merges public user-repo discovery with authenticated owned-repo discovery, and excludes forks
 - Syncs authored commit history on default branches from owned public and accessible private repositories
 - Uses an inclusive timestamp cursor plus SHA deduplication so same-second commits are not skipped
+- Caches additions and deletions by SHA from the REST commit detail endpoint and fills gaps for discovered repos on sync
 - Migrates `commits.is_private` and `commits.is_discoverable` on sync and refreshes stored visibility even when no new commits exist; undiscoverable repos retain their last known visibility for counts but have their details hidden
 - Monthly analysis and activity YAML include separate public/private counts alongside combined totals; Markdown renders nested Public/Private counts with independent MoM/YoY comparisons
 - Analysis migrates existing monthly tables and recalculates all stored months; until recalculation, legacy combined totals remain available without guessing a split
@@ -535,6 +536,13 @@ For each `date_month`, [`github/analytics.py`](github/analytics.py) computes:
 | `private_commits` | Number of rows with `is_private = 1` |
 | `public_repos_touched` | Distinct `repo` values among rows with `is_private = 0` |
 | `private_repos_touched` | Distinct `repo` values among rows with `is_private = 1` |
+| `public_additions`, `public_deletions` | Sum of the respective line counts for rows with `is_private = 0` |
+| `private_additions`, `private_deletions` | Sum of the respective line counts for rows with `is_private = 1` |
+
+Line counts use GitHub's commit-level totals across all files, including non-code
+text. A line total is null if any stored commit in that month and visibility
+group lacks the count. A group with no commits in an otherwise active month has
+zero lines added and deleted.
 
 Each private repo counts independently. Six private commits across three repos
 produce `private_commits = 6` and `private_repos_touched = 3`. For normal synced
@@ -547,7 +555,7 @@ missing months are not filled with zeros.
 
 **Comparisons**
 
-[`comparison.py`](comparison.py) compares each of the four visibility metrics
+[`comparison.py`](comparison.py) compares each visibility metric
 with the **same metric** in the previous calendar month (MoM) and the same month
 of the previous year (YoY):
 
@@ -569,6 +577,11 @@ same-second siblings can be added without counting existing commits twice. A
 newly discovered repo has no cursor and fetches its accessible default-branch
 history. This can add private commits to months before the feature was enabled.
 
+After syncing commit history, sync requests line counts for new and historical
+commits that lack them in repos still returned by discovery. Each successful
+result is saved immediately. A missing commit (HTTP 404) or missing stats
+stays eligible for retry on later runs.
+
 `github-analyze` syncs first, then recomputes and upserts **every month present
 in raw commits**, not just the newest month. Stored history and derived totals
 are therefore mutable. Sync does not reconcile deleted/unreachable commits or
@@ -577,7 +590,7 @@ Analysis also does not delete derived months that have lost all raw rows through
 manual database edits. Those cases require explicit reconciliation.
 
 Existing public-only raw databases gain `is_private = 0` and
-`is_discoverable = 1`; sync then refreshes those values. The four new analysis
+`is_discoverable = 1`; sync then refreshes those values. The commit and repo split
 columns remain null until recomputation. Before a complete split is available,
 the renderer and activity generator retain combined totals instead of guessing
 public/private values.
@@ -604,7 +617,8 @@ internal to this boundary and must not be logged separately. These rules apply
 to the normal CLI/logging paths, not custom debugging that dumps frame locals or
 raw transport objects.
 
-`code.yaml` exports all six counts after recomputation. Existing `commits` and
+`code.yaml` exports all six commit and repo counts after recomputation, plus any
+available public/private line totals. Existing `commits` and
 `repos_touched` keys remain **combined totals**, but their population now includes
 stored private activity. This preserves the keys, not their former public-only
 meaning. Existing blog charts using those keys will still display combined
@@ -823,6 +837,8 @@ from repository discovery before fetching new commits. Private names and message
 are stored locally but filtered from report details. `is_discoverable` defaults to
 `1` and becomes `0` when a repository is absent from discovery; its `is_private`
 flag then keeps the last known visibility for historical counts.
+The nullable `commits.additions` and `commits.deletions` columns cache GitHub's
+per-commit line counts.
 
 Analysis fields:
 
@@ -832,6 +848,10 @@ Analysis fields:
 - `private_commits`
 - `public_repos_touched`
 - `private_repos_touched`
+- `public_additions`
+- `private_additions`
+- `public_deletions`
+- `private_deletions`
 
 `commits` and `repos_touched` remain combined totals for existing activity-data
 consumers. New visibility fields are nullable during analysis schema migration
@@ -944,7 +964,7 @@ Sources currently surfaced in the published report use comparisons for these met
 | Apple Health | workouts, total duration, total calories |
 | Blog | posts, total words, unique tags |
 | Hardcover | books finished, average rating |
-| GitHub | public/private commits and repos touched, each compared independently |
+| GitHub | public/private commits, repos touched, additions, and deletions, each compared independently |
 | Oura Ring | median/avg sleep score, median/avg readiness score |
 
 ## Database Access Pattern

@@ -87,11 +87,12 @@ def arrange_failure(api, kind, stage):
             # A formerly public URL redirects to the private URL in the error.
             repo = {**repo, "full_name": "user/public-origin", "name": "public-origin", "private": False}
         values.append(response([repo]))
-        if stage == "next_page":
+        if stage in ("next_page", "line_stats"):
+            headers = {"Link": f'<{PRIVATE_URL}?page=2>; rel="next"'} if stage == "next_page" else {}
             values.append(response([{
                 "sha": PRIVATE_SHA,
                 "commit": {"message": PRIVATE_MESSAGE, "author": {"date": "2026-10-01T00:00:00Z"}},
-            }], headers={"Link": f'<{PRIVATE_URL}?page=2>; rel="next"'}))
+            }], headers=headers))
         values.append(failure(kind))
     api.session.get = MagicMock(side_effect=values)
 
@@ -103,7 +104,7 @@ def arrange_failure(api, kind, stage):
 ] + [
     ("first_page", kind) for kind in
     ("500", "tls", "invalid_url", "chunked", "409_list", "409_null", "409_invalid", "invalid_payload")
-])
+] + [("line_stats", "403"), ("line_stats", "invalid_json")])
 def test_activity_cli_errors_are_safe_in_stdout_stderr_and_logging(
     activity, capsys, caplog, stage, kind,
 ):
@@ -130,7 +131,8 @@ def test_activity_cli_errors_are_safe_in_stdout_stderr_and_logging(
     if kind.isdigit() or kind.startswith("409_"):
         status = kind.split("_", 1)[0]
         assert f"HTTP {status}" in str(caught.value)
-    assert db.get_stats() == {"commits": 0, "repos": 0}
+    persisted = int(stage == "line_stats")
+    assert db.get_stats() == {"commits": persisted, "repos": persisted}
 
 
 @pytest.mark.parametrize("command", ["github-sync", "publish", "backfill"])

@@ -3,6 +3,9 @@
 VISIBILITY_METRICS = (
     "public_commits", "private_commits", "public_repos_touched", "private_repos_touched",
 )
+LINE_CHANGE_METRICS = (
+    "public_additions", "private_additions", "public_deletions", "private_deletions",
+)
 
 CREATE_COMMITS_TABLE = """
 CREATE TABLE IF NOT EXISTS commits (
@@ -13,6 +16,8 @@ CREATE TABLE IF NOT EXISTS commits (
     date_month TEXT NOT NULL,
     is_private INTEGER NOT NULL DEFAULT 0,
     is_discoverable INTEGER NOT NULL DEFAULT 1,
+    additions INTEGER,
+    deletions INTEGER,
     created_at INTEGER DEFAULT (strftime('%s', 'now'))
 )
 """
@@ -28,6 +33,10 @@ CREATE TABLE IF NOT EXISTS analysis (
     private_commits INTEGER,
     public_repos_touched INTEGER,
     private_repos_touched INTEGER,
+    public_additions INTEGER,
+    private_additions INTEGER,
+    public_deletions INTEGER,
+    private_deletions INTEGER,
     updated_at TEXT
 )
 """

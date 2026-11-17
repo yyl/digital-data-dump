@@ -260,6 +260,19 @@ class TestGitHubActivityClient(unittest.TestCase):
                 params={"author": "test_user", "since": "2023-01-01T00:00:00Z"}
             )
 
+    def test_get_commit_line_stats_reads_totals_from_first_page(self):
+        with patch.object(self.client, "_get") as get:
+            get.return_value.json.return_value = {
+                "stats": {"additions": 42, "deletions": 0}, "files": [{"additions": 1}],
+            }
+            self.assertEqual(self.client.get_commit_line_stats("owner", "repo", "abc"), (42, 0))
+            get.assert_called_once_with("/repos/owner/repo/commits/abc", params={"per_page": 1})
+
+    def test_get_commit_line_stats_returns_unknown_for_unavailable_sha(self):
+        response = MagicMock(status_code=404)
+        with patch.object(self.client, "_get", side_effect=HTTPErrorClass(response=response)):
+            self.assertIsNone(self.client.get_commit_line_stats("owner", "repo", "abc"))
+
     def test_owned_discovery_preserves_public_repos_with_private_only_token(self):
         def repo(name, private=False, fork=False, owner="test_user"):
             return {
