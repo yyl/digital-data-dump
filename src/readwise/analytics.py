@@ -10,6 +10,12 @@ from .models import CREATE_ANALYSIS_TABLE, ANALYSIS_INDEXES
 from ..time_utils import utc_now_iso
 
 
+def parse_reading_time_minutes(value: str | None) -> int | None:
+    """Extract Readwise's estimated minutes when present."""
+    match = re.search(r'(\d+)', str(value))
+    return int(match.group(1)) if match else None
+
+
 class ReadwiseAnalytics:
     """Analyzes Readwise data."""
 
@@ -20,15 +26,6 @@ class ReadwiseAnalytics:
             db: Database manager instance.
         """
         self.db = db or ReadwiseDatabase()
-
-    def _parse_reading_time(self, reading_time_str: str) -> int:
-        """Extract minutes from reading time string."""
-        if not reading_time_str:
-            return 0
-        match = re.search(r'(\d+)', str(reading_time_str))
-        if match:
-            return int(match.group(1))
-        return 0
 
     def _ensure_analysis_table(self) -> None:
         """Create analysis table if it doesn't exist."""
@@ -79,7 +76,7 @@ class ReadwiseAnalytics:
 
             stats[key]['articles'] += 1
             stats[key]['words'] += wc
-            stats[key]['reading_time_mins'] += self._parse_reading_time(row['reading_time'])
+            stats[key]['reading_time_mins'] += parse_reading_time_minutes(row['reading_time']) or 0
             stats[key]['word_counts'].append(wc)
 
         # Write to database

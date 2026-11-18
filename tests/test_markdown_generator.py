@@ -96,6 +96,7 @@ class TestMarkdownGenerator(unittest.TestCase):
                 "site_name": "Alpha",
                 "last_moved_at": "2026-04-04T10:00:00Z",
                 "reading_speed_wpm": 250,
+                "reading_time_seconds": 35 * 60,
             },
             {
                 "title": "Essay B",
@@ -103,6 +104,7 @@ class TestMarkdownGenerator(unittest.TestCase):
                 "site_name": "Alpha",
                 "last_moved_at": "2026-04-03T10:00:00Z",
                 "reading_speed_wpm": 260,
+                "reading_time_seconds": 30 * 60,
             },
             {
                 "title": "Essay C",
@@ -110,6 +112,7 @@ class TestMarkdownGenerator(unittest.TestCase):
                 "site_name": "Beta",
                 "last_moved_at": "2026-04-02T10:00:00Z",
                 "reading_speed_wpm": 270,
+                "reading_time_seconds": 6 * 60,
             },
             {
                 "title": "Essay D",
@@ -120,9 +123,11 @@ class TestMarkdownGenerator(unittest.TestCase):
             },
         ])
 
-        self.assertIn("| Source | Articles |", result)
-        self.assertIn("| Alpha | 2 |", result)
-        self.assertIn("| Other | 2 |", result)
+        self.assertIn("| Source | Articles | Est. Reading Time |", result)
+        self.assertIn("| Alpha | 2 | 1h 5m |", result)
+        self.assertIn("| Other | 2 | 6m (partial) |", result)
+        self.assertIn("| 270 wpm | 6m | Beta |", result)
+        self.assertIn("| 280 wpm | N/A | Gamma |", result)
         self.assertIn("#### Alpha", result)
         self.assertIn("#### Other", result)
         self.assertNotIn("#### Beta", result)
@@ -161,7 +166,7 @@ class TestMarkdownGenerator(unittest.TestCase):
         ], new_sources=["New Source 1", "New Source 2"])
 
         # Summary table:
-        self.assertIn("| Source | Articles |", result)
+        self.assertIn("| Source | Articles | Est. Reading Time |", result)
         self.assertIn("| New Source 2 🆕 | 2 |", result)
         self.assertIn("| New Source 1 🆕 | 1 |", result)
         self.assertIn("| Other | 1 |", result)  # Old Source is count=1, it goes to Other
@@ -182,6 +187,7 @@ class TestMarkdownGenerator(unittest.TestCase):
                 "episode_title": "Episode 1",
                 "episode_link": "https://example.com/alpha-1",
                 "userUpdatedDate": "2026-04-04T10:00:00Z",
+                "duration_seconds": 3631,
             },
             {
                 "podcast_title": "Alpha Show",
@@ -189,6 +195,7 @@ class TestMarkdownGenerator(unittest.TestCase):
                 "episode_title": "Episode 2",
                 "episode_link": "https://example.com/alpha-2",
                 "userUpdatedDate": "2026-04-03T10:00:00Z",
+                "duration_seconds": 91,
             },
             {
                 "podcast_title": "Beta Show",
@@ -196,6 +203,7 @@ class TestMarkdownGenerator(unittest.TestCase):
                 "episode_title": "Episode 3",
                 "episode_link": "https://example.com/beta-1",
                 "userUpdatedDate": "2026-04-02T10:00:00Z",
+                "duration_seconds": 29,
             },
             {
                 "podcast_title": "Gamma Show",
@@ -206,12 +214,14 @@ class TestMarkdownGenerator(unittest.TestCase):
             },
         ])
 
-        self.assertIn("| Podcast | Episodes |", result)
-        self.assertIn("| Alpha Show | 2 |", result)
-        self.assertIn("| Other | 2 |", result)
+        self.assertIn("| Podcast | Episodes | Est. Listening Time |", result)
+        self.assertIn("| Alpha Show | 2 | 1h 2m |", result)
+        self.assertIn("| Other | 2 | 29s (partial) |", result)
         self.assertIn("#### [Alpha Show](https://example.com/alpha)", result)
         self.assertIn("#### Other", result)
-        self.assertIn("| Date | Episode | Podcast |", result)
+        self.assertIn("| Date | Episode | Duration | Podcast |", result)
+        self.assertIn("| 29s | Beta Show |", result)
+        self.assertIn("| N/A | Gamma Show |", result)
         self.assertNotIn("#### [Beta Show]", result)
 
     def test_generate_podcasts_block_promotes_new_feeds(self):
@@ -247,7 +257,7 @@ class TestMarkdownGenerator(unittest.TestCase):
         ], new_feeds=["New Show 1", "New Show 2"])
 
         # Summary table:
-        self.assertIn("| Podcast | Episodes |", result)
+        self.assertIn("| Podcast | Episodes | Est. Listening Time |", result)
         self.assertIn("| New Show 2 🆕 | 2 |", result)
         self.assertIn("| New Show 1 🆕 | 1 |", result)
         self.assertIn("| Other | 1 |", result)  # Old Show is count=1, it goes to Other

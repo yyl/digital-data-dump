@@ -61,11 +61,13 @@ Shows article totals and reading metrics such as:
 
 It also includes:
 
-- a ranked source summary table
-- grouped article tables
+- a ranked source summary table with estimated reading time per source
+- grouped article tables with estimated time per article
 - grouped highlights
 
 First-time reading sources are marked with `🆕`.
+Reading time uses the estimates saved by Readwise. Source totals with missing
+estimates are marked partial, or shown as `N/A` when every estimate is missing.
 
 Newsletter-style `mailto:` links are rendered as plain text instead of broken links.
 
@@ -99,10 +101,13 @@ Shows:
 
 It also includes:
 
-- a ranked podcast summary table
-- grouped episode tables
+- a ranked podcast summary table with estimated listening time per show
+- grouped episode tables with individual episode durations
 
 New podcast feeds are marked with `🆕`.
+Listening estimates sum the full durations of episodes marked played. Show
+totals with missing durations are marked partial, or shown as `N/A` when every
+duration is missing.
 
 ### Workout
 

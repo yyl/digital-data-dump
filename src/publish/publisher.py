@@ -2,11 +2,11 @@
 
 from datetime import date, timedelta
 import logging
-import re
 from typing import Dict, Any, Optional, List
 
 from ..config import Config
 from ..comparison import compute_comparisons
+from ..readwise.analytics import parse_reading_time_minutes
 from ..readwise.database import ReadwiseDatabase
 from ..foursquare.database import FoursquareDatabase
 from ..letterboxd.database import LetterboxdDatabase
@@ -306,10 +306,10 @@ class Publisher:
             self.readwise_db, query, (year_month,), required_tables=("documents",)
         )
         for article in articles:
-            article['reading_speed_wpm'] = self._compute_reading_speed(
-                article.get('word_count'),
-                article.get('reading_time')
-            )
+            minutes = parse_reading_time_minutes(article.get('reading_time'))
+            words = article.get('word_count')
+            article['reading_time_seconds'] = minutes * 60 if minutes is not None else None
+            article['reading_speed_wpm'] = round(int(words) / minutes) if words and minutes else None
             article['site_name'] = self._resolve_article_source(article)
         return articles
 
@@ -384,26 +384,26 @@ class Publisher:
 
     def _get_podcast_episodes(self, year_month: str) -> List[Dict[str, Any]]:
         """Get played podcast episodes in a specific month."""
-        query = """
-        SELECT
-            f.title AS podcast_title,
-            f.htmlUrl AS podcast_link,
-            e.title AS episode_title,
-            e.overcastUrl AS episode_link,
-            e.userUpdatedDate
-        FROM episodes e
-        LEFT JOIN feeds f ON f.overcastId = e.feedId
-        WHERE e.played = 1
-          AND e.userUpdatedDate IS NOT NULL
-          AND strftime('%Y-%m', e.userUpdatedDate) = ?
-        ORDER BY datetime(e.userUpdatedDate) DESC, f.title ASC, e.title ASC
-        """
-        return self._fetch_rows(
-            self.overcast_db,
-            query,
-            (year_month,),
-            required_tables=('feeds', 'episodes'),
-        )
+        with self.overcast_db.read_connection(required_tables=('feeds', 'episodes')) as conn:
+            if conn is None:
+                return []
+            columns = {row['name'] for row in conn.execute("PRAGMA table_info(episodes)")}
+            duration = 'e.duration_seconds' if 'duration_seconds' in columns else 'NULL'
+            return [dict(row) for row in conn.execute(f"""
+                SELECT
+                    f.title AS podcast_title,
+                    f.htmlUrl AS podcast_link,
+                    e.title AS episode_title,
+                    e.overcastUrl AS episode_link,
+                    e.userUpdatedDate,
+                    {duration} AS duration_seconds
+                FROM episodes e
+                LEFT JOIN feeds f ON f.overcastId = e.feedId
+                WHERE e.played = 1
+                  AND e.userUpdatedDate IS NOT NULL
+                  AND strftime('%Y-%m', e.userUpdatedDate) = ?
+                ORDER BY datetime(e.userUpdatedDate) DESC, f.title ASC, e.title ASC
+            """, (year_month,))]
 
     def _get_new_podcast_feeds(self, year_month: str) -> List[str]:
         """Get new podcast feeds subscribed in the given month."""
@@ -911,18 +911,3 @@ class Publisher:
             {'repo': repo, 'commits': repo_commits}
             for repo, repo_commits in groups.items()
         ]
-
-    def _compute_reading_speed(self, word_count: Any, reading_time: Any) -> Optional[int]:
-        """Compute words-per-minute from Readwise document fields."""
-        if not word_count or not reading_time:
-            return None
-
-        match = re.search(r'(\d+)', str(reading_time))
-        if not match:
-            return None
-
-        minutes = int(match.group(1))
-        if minutes <= 0:
-            return None
-
-        return round(int(word_count) / minutes)

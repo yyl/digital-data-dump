@@ -528,35 +528,28 @@ categories: ["Summary"]
             source_name = (article.get('site_name') or "").strip() or "Other"
             source_counts[source_name] = source_counts.get(source_name, 0) + 1
 
-        summary_counts: dict[str, int] = {}
-        grouped_counts: dict[str, int] = {}
         grouped: dict[str, list[Dict[str, Any]]] = {}
         for article in articles:
             source_name = (article.get('site_name') or "").strip() or "Other"
-            
-            # Summary table grouping (promote new sources)
             is_new = source_name in new_sources_set
-            summary_group = source_name if (source_counts.get(source_name, 0) > 1 or is_new) else "Other"
-            summary_counts[summary_group] = summary_counts.get(summary_group, 0) + 1
-            
-            # Breakdown table grouping mirrors the summary so new sources are visible.
             group_name = source_name if (source_counts.get(source_name, 0) > 1 or is_new) else "Other"
-            grouped_counts[group_name] = grouped_counts.get(group_name, 0) + 1
             grouped.setdefault(group_name, []).append(article)
 
+        grouped_counts = {name: len(items) for name, items in grouped.items()}
         ordered_group_names = self._ordered_group_names(grouped_counts)
 
         lines = ["", "### Articles Read"]
         lines.extend([
             "",
-            "| Source | Articles |",
-            "| --- | --- |",
+            "| Source | Articles | Est. Reading Time |",
+            "| --- | --- | --- |",
         ])
-        for source_name, count in self._sorted_group_counts(summary_counts):
+        for source_name in ordered_group_names:
             display_name = self._escape_table_text(source_name)
             if source_name != "Other" and source_name in new_sources_set:
                 display_name = f"{display_name} 🆕"
-            lines.append(f"| {display_name} | {count} |")
+            total_time = self._format_activity_total(grouped[source_name], 'reading_time_seconds')
+            lines.append(f"| {display_name} | {grouped_counts[source_name]} | {total_time} |")
 
         for group_name in ordered_group_names:
             show_source_column = group_name == "Other"
@@ -569,8 +562,8 @@ categories: ["Summary"]
                 "",
                 f"#### {heading}",
                 "",
-                "| Date | Article | Speed | Source |" if show_source_column else "| Date | Article | Speed |",
-                "| --- | --- | --- | --- |" if show_source_column else "| --- | --- | --- |",
+                "| Date | Article | Speed | Est. Time |" + (" Source |" if show_source_column else ""),
+                "| --- | --- | --- | --- |" + (" --- |" if show_source_column else ""),
             ])
             for article in grouped[group_name]:
                 title = article.get('title') or "Untitled"
@@ -578,15 +571,15 @@ categories: ["Summary"]
                 label = self._markdown_link(title, link)
                 date = self._format_date(article.get('last_moved_at'))
                 speed = self._format_speed(article.get('reading_speed_wpm'))
-                
+                time = self._format_activity_time(article.get('reading_time_seconds'))
+                row = f"| {date} | {label} | {speed} | {time} |"
                 if show_source_column:
                     raw_source = (article.get('site_name') or "").strip()
                     source = self._escape_table_text(raw_source)
                     if raw_source in new_sources_set:
                         source = f"{source} 🆕"
-                    lines.append(f"| {date} | {label} | {speed} | {source} |")
-                else:
-                    lines.append(f"| {date} | {label} | {speed} |")
+                    row += f" {source} |"
+                lines.append(row)
         return "\n".join(lines)
 
     def _generate_readwise_highlights_block(self, highlight_groups: list[Dict[str, Any]]) -> str:
@@ -649,7 +642,7 @@ categories: ["Summary"]
             podcast_title = episode.get('podcast_title') or "Unknown podcast"
             podcast_counts[podcast_title] = podcast_counts.get(podcast_title, 0) + 1
 
-        summary_counts: dict[str, int] = {}
+        summary_groups: dict[str, list[Dict[str, Any]]] = {}
         grouped_counts: dict[str, int] = {}
         grouped: dict[str, list[Dict[str, Any]]] = {}
         podcast_links: dict[str, Optional[str]] = {}
@@ -659,7 +652,7 @@ categories: ["Summary"]
             # Summary table grouping
             is_new = podcast_title in new_feeds_set
             summary_group = podcast_title if (podcast_counts.get(podcast_title, 0) > 1 or is_new) else "Other"
-            summary_counts[summary_group] = summary_counts.get(summary_group, 0) + 1
+            summary_groups.setdefault(summary_group, []).append(episode)
             
             # Breakdown grouping
             group_name = podcast_title if podcast_counts.get(podcast_title, 0) > 1 else "Other"
@@ -668,12 +661,14 @@ categories: ["Summary"]
             if group_name != "Other":
                 podcast_links[group_name] = episode.get('podcast_link')
 
-        lines = ["", "### Episodes Listened", "", "| Podcast | Episodes |", "| --- | --- |"]
+        summary_counts = {title: len(items) for title, items in summary_groups.items()}
+        lines = ["", "### Episodes Listened", "", "| Podcast | Episodes | Est. Listening Time |", "| --- | --- | --- |"]
         for podcast_title, count in self._sorted_group_counts(summary_counts):
             display_name = self._escape_table_text(podcast_title)
             if podcast_title != "Other" and podcast_title in new_feeds_set:
                 display_name = f"{display_name} 🆕"
-            lines.append(f"| {display_name} | {count} |")
+            total_time = self._format_activity_total(summary_groups[podcast_title], 'duration_seconds')
+            lines.append(f"| {display_name} | {count} | {total_time} |")
 
         for podcast_title in self._ordered_group_names(grouped_counts):
             grouped_episodes = grouped[podcast_title]
@@ -687,25 +682,23 @@ categories: ["Summary"]
                 "",
                 f"#### {heading_link}",
                 "",
-                "| Date | Episode | Podcast |" if podcast_title == "Other" else "| Date | Episode |",
-                "| --- | --- | --- |" if podcast_title == "Other" else "| --- | --- |",
+                "| Date | Episode | Duration |" + (" Podcast |" if podcast_title == "Other" else ""),
+                "| --- | --- | --- |" + (" --- |" if podcast_title == "Other" else ""),
             ])
             for episode in grouped_episodes:
                 episode_title = episode.get('episode_title') or "Untitled episode"
                 episode_link = episode.get('episode_link')
                 episode_part = self._markdown_link(episode_title, episode_link)
+                date = self._format_date(episode.get('userUpdatedDate'))
+                time = self._format_activity_time(episode.get('duration_seconds'))
+                row = f"| {date} | {episode_part} | {time} |"
                 if podcast_title == "Other":
                     raw_source = episode.get('podcast_title') or "Unknown podcast"
                     source = self._escape_table_text(raw_source)
                     if raw_source in new_feeds_set:
                         source = f"{source} 🆕"
-                    lines.append(
-                        f"| {self._format_date(episode.get('userUpdatedDate'))} | {episode_part} | {source} |"
-                    )
-                else:
-                    lines.append(
-                        f"| {self._format_date(episode.get('userUpdatedDate'))} | {episode_part} |"
-                    )
+                    row += f" {source} |"
+                lines.append(row)
         return "\n".join(lines)
 
     def _generate_commit_groups_block(self, commit_groups: list[Dict[str, Any]]) -> str:
@@ -802,6 +795,23 @@ categories: ["Summary"]
         if value is None:
             return ""
         return f"{int(value)} wpm"
+
+    def _format_activity_time(self, seconds: int | None) -> str:
+        """Format a recorded duration compactly for a report table."""
+        if seconds is None:
+            return "N/A"
+        if 0 < seconds < 60:
+            return f"{seconds}s"
+        hours, minutes = divmod(round(seconds / 60), 60)
+        return f"{hours}h {minutes}m" if hours else f"{minutes}m"
+
+    def _format_activity_total(self, items: list[Dict[str, Any]], time_key: str) -> str:
+        """Sum known durations and indicate when the total has gaps."""
+        durations = [item[time_key] for item in items if item.get(time_key) is not None]
+        if not durations:
+            return "N/A"
+        total = self._format_activity_time(sum(durations))
+        return f"{total} (partial)" if len(durations) < len(items) else total
 
     def _format_readwise_highlight(self, highlight: Dict[str, Any]) -> list[str]:
         """Format a single Readwise highlight as a quote-style markdown block."""
