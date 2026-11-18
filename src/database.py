@@ -10,6 +10,18 @@ from .config import Config
 
 logger = logging.getLogger(__name__)
 
+CREATE_SOURCE_TIME_ANALYSIS_TABLE = """
+CREATE TABLE IF NOT EXISTS analysis_by_source (
+    year_month TEXT NOT NULL,
+    source_name TEXT NOT NULL,
+    items INTEGER NOT NULL,
+    timed_items INTEGER NOT NULL,
+    total_seconds INTEGER,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (year_month, source_name)
+);
+"""
+
 
 class DatabaseReadError(RuntimeError):
     """An existing source cannot be read safely; it must not become empty data."""

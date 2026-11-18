@@ -12,6 +12,7 @@ class OvercastDatabase(BaseDatabase):
 
     source_name = 'Overcast'
     raw_table_names = frozenset({'feeds', 'episodes', 'playlists'})
+    analysis_table_names = frozenset({'analysis', 'analysis_by_source'})
     
     def __init__(self, db_path: Optional[str] = None):
         """Initialize database manager."""

@@ -328,7 +328,10 @@ class TestMarkdownGenerator(unittest.TestCase):
                 "total_calories": {"mom": -5.0, "yoy": 20.0},
             },
             "activity_breakdown": [
-                {"activity_type": "run", "workouts": 3},
+                {"activity_type": "run", "workouts": 3, "total_duration_seconds": 3900,
+                 "total_calories": 1200.2, "avg_heart_rate": 145.6, "max_heart_rate": 179},
+                {"activity_type": "cycling", "workouts": 2, "total_duration_seconds": 3600,
+                 "total_calories": 232.2, "avg_heart_rate": 121, "max_heart_rate": None},
             ],
         })
 
@@ -336,8 +339,9 @@ class TestMarkdownGenerator(unittest.TestCase):
         self.assertIn("- **Workouts**: 5 (+25% MoM, +10% YoY)", result)
         self.assertIn("- **Total Time**: 2h 5m (+12% MoM, N/A YoY)", result)
         self.assertIn("- **Total Calories**: 1,432 kcal (-5% MoM, +20% YoY)", result)
-        self.assertIn("| Activity Type | Workouts |", result)
-        self.assertIn("| run | 3 |", result)
+        self.assertIn("| Activity Type | Workouts | Total Time | Total Calories | Avg Heart Rate | Max Heart Rate |", result)
+        self.assertIn("| run | 3 | 1h 5m | 1,200 kcal | 146 bpm | 179 bpm |", result)
+        self.assertIn("| cycling | 2 | 1h 0m | 232 kcal | 121 bpm | N/A |", result)
 
     def test_generate_blog_section_includes_top_tags(self):
         result = self.generator._generate_blog_section({

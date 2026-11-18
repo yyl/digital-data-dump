@@ -14,6 +14,7 @@ class AppleHealthDatabase(BaseDatabase):
 
     source_name = 'Apple Health'
     raw_table_names = frozenset({'workouts'})
+    analysis_table_names = frozenset({'analysis', 'analysis_by_activity'})
 
     def __init__(self, db_path: Optional[str] = None):
         """Initialize database manager."""

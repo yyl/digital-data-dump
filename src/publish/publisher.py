@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional, List
 
 from ..config import Config
 from ..comparison import compute_comparisons
-from ..readwise.analytics import parse_reading_time_minutes
+from ..readwise.analytics import parse_reading_time_minutes, resolve_article_source
 from ..readwise.database import ReadwiseDatabase
 from ..foursquare.database import FoursquareDatabase
 from ..letterboxd.database import LetterboxdDatabase
@@ -14,6 +14,7 @@ from ..overcast.database import OvercastDatabase
 from ..strong.database import StrongDatabase
 from ..strong.analytics import StrongAnalytics
 from ..apple_health.database import AppleHealthDatabase
+from ..apple_health.models import ACTIVITY_ROLLUP
 from ..blog.database import BlogDatabase
 from ..hardcover.database import HardcoverDatabase
 from ..github.database import GitHubDatabase
@@ -109,6 +110,18 @@ class Publisher:
     ) -> List[Dict[str, Any]]:
         """Fetch report rows without suppressing database or schema failures."""
         return db.fetch_rows(query, params, required_tables=required_tables)
+
+    def _get_source_time_analysis(self, db: Any, year_month: str) -> Optional[List[Dict[str, Any]]]:
+        """Read source totals when the database has been analyzed with this schema."""
+        with db.read_connection(required_tables=()) as conn:
+            if conn is None or not conn.execute("""
+                SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'analysis_by_source'
+            """).fetchone():
+                return None
+            return [dict(row) for row in conn.execute("""
+                SELECT source_name, items, timed_items, total_seconds
+                FROM analysis_by_source WHERE year_month = ?
+            """, (year_month,))]
 
     def _get_readwise_analysis(self, year_month: str) -> Optional[Dict[str, Any]]:
         """Get Readwise analysis for a specific month."""
@@ -257,34 +270,6 @@ class Publisher:
                 result['avg_readiness_score'] = round(row['avg_value'], 2) if row['avg_value'] is not None else None
         return result if len(result) > 1 else None
 
-    @staticmethod
-    def _resolve_article_source(article: Dict[str, Any]) -> Optional[str]:
-        """Derive a source name for an article.
-
-        Resolution chain:
-        1. ``site_name`` – use the Readwise-provided value when present.
-        2. Title prefix – the substring before the first ``:`` in the title.
-           Newsletter emails almost always follow a ``Name: Subject`` pattern
-           (e.g. "Money Stuff: SpaceX Crash Insurance").
-        3. ``author`` – the raw author string as a last resort.
-        4. ``None`` – the caller decides on the fallback (usually "Other").
-        """
-        site = (article.get('site_name') or "").strip()
-        if site:
-            return site
-
-        title = (article.get('title') or "").strip()
-        if ':' in title:
-            prefix = title.split(':', 1)[0].strip()
-            if prefix:
-                return prefix
-
-        author = (article.get('author') or "").strip()
-        if author:
-            return author
-
-        return None
-
     def _get_readwise_articles(self, year_month: str) -> List[Dict[str, Any]]:
         """Get archived Readwise articles for a specific month."""
         query = """
@@ -310,7 +295,7 @@ class Publisher:
             words = article.get('word_count')
             article['reading_time_seconds'] = minutes * 60 if minutes is not None else None
             article['reading_speed_wpm'] = round(int(words) / minutes) if words and minutes else None
-            article['site_name'] = self._resolve_article_source(article)
+            article['site_name'] = resolve_article_source(article)
         return articles
 
     def _get_readwise_highlights(self, year_month: str) -> List[Dict[str, Any]]:
@@ -337,7 +322,7 @@ class Publisher:
     def _get_new_reading_sources(self, year_month: str) -> List[str]:
         """Get 'new' reading sources that appeared for the first time in the given month.
 
-        Uses the same source resolution as ``_resolve_article_source`` so that
+        Uses the same source resolution as ``resolve_article_source`` so that
         forwarded-email newsletters (which lack a ``site_name`` in the DB) are
         detected correctly.
         """
@@ -355,7 +340,7 @@ class Publisher:
         # Track which resolved source names we've seen and their first month.
         first_seen: dict[str, str] = {}
         for row in rows:
-            source = self._resolve_article_source(row)
+            source = resolve_article_source(row)
             if not source:
                 continue
             row_month = row['last_moved_at'][:7]  # "YYYY-MM"
@@ -485,21 +470,21 @@ class Publisher:
         ]
 
     def _get_apple_health_activity_breakdown(self, year_month: str) -> List[Dict[str, Any]]:
-        """Get Apple Health activity types ranked by workout count."""
-        query = """
-        SELECT activity_type, COUNT(*) AS workouts
-        FROM workouts
-        WHERE strftime('%Y-%m', started_at) = ?
-        AND activity_type != 'walk'
-        GROUP BY activity_type
-        ORDER BY workouts DESC, activity_type ASC
-        """
-        return self._fetch_rows(
-            self.apple_health_db,
-            query,
-            (year_month,),
-            required_tables=('workouts',),
-        )
+        """Read the monthly workout breakdown, including previews of legacy databases."""
+        with self.apple_health_db.read_connection(required_tables=('workouts',)) as conn:
+            if conn is None:
+                return []
+            has_analysis = conn.execute("""
+                SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'analysis_by_activity'
+            """).fetchone()
+            source = "analysis_by_activity" if has_analysis else f"({ACTIVITY_ROLLUP})"
+            return [dict(row) for row in conn.execute(f"""
+                SELECT activity_type, workouts, total_duration_seconds, total_calories,
+                       avg_heart_rate, max_heart_rate
+                FROM {source}
+                WHERE year_month = ?
+                ORDER BY workouts DESC, activity_type ASC
+            """, (year_month,))]
 
     def _get_blog_top_tags(self, year_month: str) -> List[Dict[str, Any]]:
         """Get blog tags ranked by number of posts in a month."""
@@ -712,6 +697,7 @@ class Publisher:
                 'median_words_per_article': readwise['median_words_per_article'],
                 'min_words_per_article': readwise['min_words_per_article'],
                 'article_list': self._get_readwise_articles(year_month),
+                'source_time_analysis': self._get_source_time_analysis(self.readwise_db, year_month),
                 'new_sources': self._get_new_reading_sources(year_month),
                 'highlight_groups': self._group_readwise_highlights(
                     self._get_readwise_highlights(year_month)
@@ -769,6 +755,7 @@ class Publisher:
                 'episodes_played': overcast['episodes_played'],
                 'minutes_listened': overcast.get('minutes_listened', 0),
                 'episodes': self._get_podcast_episodes(year_month),
+                'source_time_analysis': self._get_source_time_analysis(self.overcast_db, year_month),
                 'new_feeds': self._get_new_podcast_feeds(year_month),
                 'comparisons': overcast_comparisons
             }

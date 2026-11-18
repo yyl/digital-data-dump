@@ -705,6 +705,10 @@ Analysis fields:
 - `median_words_per_article`
 - `min_words_per_article`
 
+Readwise's `analysis_by_source` groups archived documents by month and resolved
+publication name. Each row stores the document count, count with reading time,
+and estimated reading seconds.
+
 #### Foursquare (`foursquare.db`)
 
 Data tables:
@@ -762,6 +766,11 @@ Analysis fields:
 - `episodes_played`
 - `minutes_listened`
 
+Overcast's `analysis_by_source` groups played episodes by month and show title.
+Each row stores the episode count, count with a duration, and total known seconds.
+Both sources rebuild these rows with their monthly totals in one transaction.
+The report applies its display grouping, including **Other**, to these rows.
+
 #### Strong (`strong.db`)
 
 Data tables:
@@ -800,6 +809,11 @@ Analysis fields:
 - `workouts`
 - `total_duration_seconds`
 - `total_calories`
+
+`analysis_by_activity` stores one row per `(year_month, activity_type)` with
+these same totals, `avg_heart_rate`, and `max_heart_rate`. Analysis rebuilds
+both tables in one transaction. A preview of an older database can compute the
+breakdown from its workouts until the first analysis run creates the table.
 
 #### Blog (`blog.db`)
 

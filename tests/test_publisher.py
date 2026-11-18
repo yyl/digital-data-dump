@@ -3,6 +3,46 @@ from datetime import date
 from unittest.mock import MagicMock, patch
 from src.publish.publisher import Publisher
 from src.database import BaseDatabase
+from src.apple_health.analytics import AppleHealthAnalytics
+from src.apple_health.database import AppleHealthDatabase
+
+
+def test_apple_health_activity_breakdown_aggregates_available_measurements(tmp_path):
+    db = AppleHealthDatabase(str(tmp_path / "apple_health.db"))
+    db.init_tables()
+    with db.get_connection() as conn:
+        conn.executemany("""
+            INSERT INTO workouts (
+                id, activity_type, activity_type_raw, started_at, ended_at,
+                duration_seconds, total_calories, avg_heart_rate, max_heart_rate
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, [
+            ("r1", "run", "Running", "2026-04-03", "2026-04-03", 600, 100, 140, 165),
+            ("r2", "run", "Running", "2026-04-05", "2026-04-05", 1200, 250, 180, 195),
+            ("r3", "run", "Running", "2026-04-06", "2026-04-06", 900, None, None, None),
+            ("c1", "cycling", "Cycling", "2026-04-07", "2026-04-07", 1800, 300, 153, None),
+            ("w1", "walk", "Walking", "2026-04-08", "2026-04-08", 900, 100, 100, 120),
+            ("r4", "run", "Running", "2026-05-01", "2026-05-01", 1200, 250, 155, 169),
+        ])
+    publisher = Publisher(apple_health_db=db)
+    expected = [
+        {"activity_type": "run", "workouts": 3, "total_duration_seconds": 2700,
+         "total_calories": 350, "avg_heart_rate": 160, "max_heart_rate": 195},
+        {"activity_type": "cycling", "workouts": 1, "total_duration_seconds": 1800,
+         "total_calories": 300, "avg_heart_rate": 153, "max_heart_rate": None},
+    ]
+    assert publisher._get_apple_health_activity_breakdown("2026-04") == expected
+    analytics = AppleHealthAnalytics(db)
+    assert analytics.analyze_workouts() == 2
+    assert publisher._get_apple_health_activity_breakdown("2026-04") == expected
+
+    with db.get_connection() as conn:
+        conn.execute("DELETE FROM workouts WHERE activity_type = 'cycling'")
+    assert publisher._get_apple_health_activity_breakdown("2026-04") == expected
+    assert analytics.analyze_workouts() == 2
+    assert publisher._get_apple_health_activity_breakdown("2026-04") == expected[:1]
+    assert publisher._get_apple_health_analysis("2026-04")["workouts"] == 3
+
 
 class TestPublisher(unittest.TestCase):
     def setUp(self):
@@ -76,14 +116,6 @@ class TestPublisher(unittest.TestCase):
                'total_duration_seconds': 5400, 'total_calories': 1234.5}
         self.mock_apple_health_db.fetch_rows.return_value = [row]
         self.assertEqual(self.publisher._get_apple_health_analysis('2023-01'), row)
-
-    def test_get_apple_health_activity_breakdown(self):
-        rows = [{'activity_type': 'run', 'workouts': 3}]
-        self.mock_apple_health_db.fetch_rows.return_value = rows
-        self.assertEqual(self.publisher._get_apple_health_activity_breakdown('2023-01'), rows)
-        self.assertEqual(
-            self.mock_apple_health_db.fetch_rows.call_args.kwargs['required_tables'], ('workouts',)
-        )
 
     def test_get_blog_analysis_success(self):
         row = {'year_month': '2023-01', 'posts': 2, 'total_words': 1800, 'unique_tags': 3}

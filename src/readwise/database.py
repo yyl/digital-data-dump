@@ -13,6 +13,7 @@ class ReadwiseDatabase(BaseDatabase):
     """Manages SQLite database connections and operations."""
 
     source_name = 'Readwise'
+    analysis_table_names = frozenset({'analysis', 'analysis_by_source'})
     raw_table_names = frozenset({
         'books',
         'highlights',

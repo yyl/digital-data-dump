@@ -32,6 +32,33 @@ CREATE TABLE IF NOT EXISTS analysis (
 );
 """
 
+CREATE_ACTIVITY_ANALYSIS_TABLE = """
+CREATE TABLE IF NOT EXISTS analysis_by_activity (
+    year_month TEXT NOT NULL,
+    activity_type TEXT NOT NULL,
+    workouts INTEGER NOT NULL,
+    total_duration_seconds INTEGER NOT NULL,
+    total_calories REAL,
+    avg_heart_rate REAL,
+    max_heart_rate REAL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (year_month, activity_type)
+);
+"""
+
+ACTIVITY_ROLLUP = """
+SELECT strftime('%Y-%m', started_at) AS year_month,
+       activity_type,
+       COUNT(*) AS workouts,
+       SUM(duration_seconds) AS total_duration_seconds,
+       SUM(total_calories) AS total_calories,
+       AVG(avg_heart_rate) AS avg_heart_rate,
+       MAX(max_heart_rate) AS max_heart_rate
+FROM workouts
+WHERE strftime('%Y-%m', started_at) IS NOT NULL AND activity_type != 'walk'
+GROUP BY year_month, activity_type
+"""
+
 RAW_TABLES = [
     CREATE_WORKOUTS_TABLE,
 ]

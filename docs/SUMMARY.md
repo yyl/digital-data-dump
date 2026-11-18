@@ -119,6 +119,12 @@ Shows:
 
 This section is sourced from Apple Health analysis.
 
+The **Activity Types** table shows workout count, total duration, total calories,
+average heart rate, and maximum heart rate for each type in the report month.
+Average heart rate gives each workout with a recorded average equal weight.
+Maximum heart rate is the highest recorded workout maximum. Calories sum the
+available measurements. A field with no recorded measurements shows `N/A`.
+
 Apple Health JSON uses the confirmed workout `duration` and `energy_burned`
 (total kcal) mappings. Existing XML-derived measurements are preserved. Walks
 remain excluded, and months follow the existing UTC grouping. Missing calorie
