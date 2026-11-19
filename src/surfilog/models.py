@@ -64,6 +64,8 @@ CREATE TABLE IF NOT EXISTS analysis (
     max_speed_kmh REAL NOT NULL,
     longest_wave_m REAL NOT NULL,
     max_wave_seconds REAL NOT NULL,
+    median_wave_seconds REAL,
+    median_speed_kmh REAL,
     updated_at TEXT NOT NULL
 )
 """
@@ -73,3 +75,5 @@ METRICS = (
     "surf_distance_m", "paddling_distance_m", "max_speed_kmh", "longest_wave_m",
     "max_wave_seconds",
 )
+
+WAVE_MEDIAN_METRICS = ("median_wave_seconds", "median_speed_kmh")

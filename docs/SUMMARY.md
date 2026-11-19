@@ -152,10 +152,17 @@ held for identity or timestamp review are not added to workout rows or totals.
 
 Sourced from Surfilog. Shows:
 
-- sessions and waves caught, with MoM and YoY comparisons
+- sessions and total waves caught
 - time in the water and riding time
+- median and maximum wave duration
+- median wave top speed and maximum speed
 - riding distance and paddling distance
-- maximum riding speed and longest wave
+- longest wave by distance
+
+Each metric shows MoM and YoY changes. Missing or zero comparison baselines
+show `N/A`. Wave duration, speed, and longest wave are unavailable for months
+with sessions but no counted waves. Median speed uses each counted wave's top
+speed.
 
 The report uses session-local calendar months. Excluded waves remain in raw
 storage but do not contribute to wave counts, riding measurements, or records.

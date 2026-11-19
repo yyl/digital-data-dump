@@ -333,21 +333,30 @@ categories: ["Summary"]
     def _generate_surfilog_section(self, surfing: Dict[str, Any]) -> str:
         """Show surfing totals without exposing individual tracks or locations."""
         comparisons = surfing.get('comparisons', {})
-        lines = ["", "## Surfing", ""]
-        for label, metric in [('Sessions', 'sessions'), ('Waves Caught', 'waves')]:
-            suffix = format_comparison_suffix(comparisons.get(metric))
-            lines.append(f"- **{label}**: {int(surfing.get(metric, 0))}{suffix}")
         minutes = round(surfing.get('total_duration_seconds', 0) / 60)
-        lines.append(f"- **Time in the Water**: {minutes // 60}h {minutes % 60}m")
         seconds = round(surfing.get('surf_time_seconds', 0))
-        lines.append(f"- **Riding Time**: {seconds // 60}m {seconds % 60}s")
+        values = [
+            ('Sessions', 'sessions', f"{int(surfing.get('sessions', 0)):,}"),
+            ('Waves Caught', 'waves', f"{int(surfing.get('waves', 0)):,}"),
+            ('Time in the Water', 'total_duration_seconds', f"{minutes // 60}h {minutes % 60}m"),
+            ('Riding Time', 'surf_time_seconds', f"{seconds // 60}m {seconds % 60}s"),
+        ]
         for label, metric, unit in [
+            ('Median Wave Time', 'median_wave_seconds', 's'),
+            ('Max Wave Time', 'max_wave_seconds', 's'),
+            ('Median Wave Top Speed', 'median_speed_kmh', 'km/h'),
+            ('Max Speed', 'max_speed_kmh', 'km/h'),
             ('Riding Distance', 'surf_distance_m', 'm'),
             ('Paddling Distance', 'paddling_distance_m', 'm'),
-            ('Max Speed', 'max_speed_kmh', 'km/h'),
             ('Longest Wave', 'longest_wave_m', 'm'),
         ]:
-            lines.append(f"- **{label}**: {surfing.get(metric, 0):,.1f} {unit}")
+            value = surfing.get(metric)
+            values.append((label, metric, f"{value:,.1f} {unit}" if value is not None else "N/A"))
+
+        lines = ["", "## Surfing", ""]
+        for label, metric, value in values:
+            suffix = format_comparison_suffix(comparisons.get(metric))
+            lines.append(f"- **{label}**: {value}{suffix}")
         return "\n".join(lines) + "\n"
 
     def _generate_blog_section(self, blog_data: Dict[str, Any]) -> str:

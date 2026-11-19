@@ -99,6 +99,8 @@ def test_repeat_sync_preserves_wave_details_and_refreshes_corrections(db):
     assert row["surf_time_seconds"] == 10
     assert row["surf_distance_m"] == 40.25
     assert row["max_speed_kmh"] == 15.5
+    assert row["median_wave_seconds"] == 10
+    assert row["median_speed_kmh"] == 15.5
     assert row["paddling_distance_m"] == 1234
 
     # Restore a ride; metrics refresh without counting repeated downloads twice.
@@ -112,6 +114,8 @@ def test_repeat_sync_preserves_wave_details_and_refreshes_corrections(db):
     assert row["max_speed_kmh"] == 29.9
     assert row["longest_wave_m"] == 90
     assert row["max_wave_seconds"] == 20
+    assert row["median_wave_seconds"] == 15
+    assert row["median_speed_kmh"] == pytest.approx(22.7)
     assert row["total_duration_seconds"] == 3600  # No multiplication by wave count.
 
 
@@ -142,6 +146,8 @@ def test_reprocessed_waves_deleted_sessions_and_empty_account_clear_old_metrics(
     assert db.get_stats() == {"sessions": 1, "waves": 0, "excluded_waves": 0}
     assert len(analysis(db)) == 1
     assert analysis(db)[0]["waves"] == 0
+    assert analysis(db)[0]["median_wave_seconds"] is None
+    assert analysis(db)[0]["median_speed_kmh"] is None
     api.payloads = []
     manager.sync()
     SurfilogAnalytics(db).analyze_sessions()
@@ -224,7 +230,12 @@ def test_reports_and_yaml_publish_aggregates_with_comparisons_and_date_limits(db
     october = session_payload()
     september = session_payload(2, "2026-09-01T16:00:00Z")
     september["waves"][1]["is_excluded"] = False
-    SurfilogSyncManager(db, FakeAPI(october, september)).sync()
+    september_second = session_payload(3, "2026-09-02T16:00:00Z")
+    september_second["waves"][0].update(duration_sec=35, max_speed_kmh=40)
+    last_october = session_payload(4, "2025-10-01T16:00:00Z")
+    last_october["session"].update(duration_sec=1800, session_metrics={"paddlingDistanceM": 1000})
+    last_october["waves"][0].update(duration_sec=5, max_speed_kmh=10, distance_m=20)
+    SurfilogSyncManager(db, FakeAPI(october, september, september_second, last_october)).sync()
     SurfilogAnalytics(db).analyze_sessions()
     absent = MagicMock()
     absent.fetch_rows.return_value = []
@@ -235,8 +246,20 @@ def test_reports_and_yaml_publish_aggregates_with_comparisons_and_date_limits(db
     assert publisher._get_target_year_month() == "2026-10"
     markdown = publisher.generate_markdown("2026-10")
     assert "## Surfing" in markdown
-    assert "**Waves Caught**: 1 (-50% MoM, N/A YoY)" in markdown
-    assert "**Time in the Water**: 1h 0m" in markdown
+    for line in (
+        "**Sessions**: 1 (-50% MoM, +0% YoY)",
+        "**Waves Caught**: 1 (-67% MoM, +0% YoY)",
+        "**Time in the Water**: 1h 0m (-50% MoM, +100% YoY)",
+        "**Riding Time**: 0m 10s (-85% MoM, +100% YoY)",
+        "**Median Wave Time**: 10.0 s (-50% MoM, +100% YoY)",
+        "**Max Wave Time**: 10.0 s (-71% MoM, +100% YoY)",
+        "**Median Wave Top Speed**: 15.5 km/h (-48% MoM, +55% YoY)",
+        "**Max Speed**: 15.5 km/h (-61% MoM, +55% YoY)",
+        "**Riding Distance**: 40.2 m (-76% MoM, +101% YoY)",
+        "**Paddling Distance**: 1,234.0 m (-50% MoM, +23% YoY)",
+        "**Longest Wave**: 40.2 m (-55% MoM, +101% YoY)",
+    ):
+        assert line in markdown
     files = publisher.data_generator.generate_data_files(min_year_month="2026-10", max_year_month="2026-10")
     assert set(files) == {"data/activity/surfing.yaml"}
     exported = files["data/activity/surfing.yaml"]
@@ -246,6 +269,16 @@ def test_reports_and_yaml_publish_aggregates_with_comparisons_and_date_limits(db
     assert "  surf_distance_m: 40.25" in exported
     for private in ("Synthetic surf session", "share-token-must-not-be-stored", "-122.0", "coords_json"):
         assert private not in markdown + exported
+
+    with db.get_connection() as conn:
+        conn.execute("ALTER TABLE analysis DROP COLUMN median_wave_seconds")
+        conn.execute("ALTER TABLE analysis DROP COLUMN median_speed_kmh")
+
+    legacy_markdown = publisher.generate_markdown("2026-10")
+    assert "**Median Wave Time**: N/A (N/A MoM, N/A YoY)" in legacy_markdown
+    assert "**Max Wave Time**: 10.0 s (-71% MoM, +100% YoY)" in legacy_markdown
+    SurfilogAnalytics(db).analyze_sessions()
+    assert "**Median Wave Time**: 10.0 s (-50% MoM, +100% YoY)" in publisher.generate_markdown("2026-10")
 
 
 def test_optional_source_skips_only_missing_configuration(monkeypatch):

@@ -24,6 +24,7 @@ from ..github.analytics import hourly_activity
 from ..oura.database import OuraDatabase
 from ..surfilog.database import SurfilogDatabase
 from ..surfilog.models import METRICS as SURFILOG_METRICS
+from ..surfilog.models import WAVE_MEDIAN_METRICS
 from .github_client import GitHubClient
 from .markdown_generator import MarkdownGenerator
 from .data_generator import DataGenerator
@@ -279,9 +280,14 @@ class Publisher:
         return preview
 
     def _get_surfilog_analysis(self, year_month: str) -> Optional[Dict[str, Any]]:
-        return self._fetch_analysis(
+        row = self._fetch_analysis(
             self.surfilog_db, "SELECT * FROM analysis WHERE year_month = ?", (year_month,),
         )
+        if row and row['waves'] == 0:
+            # A session with no counted waves has no wave records to compare.
+            for metric in ('max_wave_seconds', 'max_speed_kmh', 'longest_wave_m'):
+                row[metric] = None
+        return row
 
     def _get_oura_analysis(self, year_month: str) -> Optional[Dict[str, Any]]:
         """Get Oura sleep & readiness analysis for a specific month.
@@ -920,10 +926,11 @@ class Publisher:
 
         surfing = self._get_surfilog_analysis(year_month)
         if surfing:
+            metrics = [*SURFILOG_METRICS, *WAVE_MEDIAN_METRICS]
             data['surfilog'] = {
-                **{metric: surfing[metric] for metric in SURFILOG_METRICS},
+                **{metric: surfing.get(metric) for metric in metrics},
                 'comparisons': compute_comparisons(
-                    surfing, self._get_surfilog_analysis, year_month, list(SURFILOG_METRICS)
+                    surfing, self._get_surfilog_analysis, year_month, metrics
                 ),
             }
 

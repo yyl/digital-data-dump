@@ -257,7 +257,11 @@ Analysis groups the current complete snapshot by `date_month`:
 - `surf_time_seconds` and `surf_distance_m`: sums of non-excluded wave durations
   and distances, retaining API precision rather than HTML-rounded measurements.
 - `max_speed_kmh`, `longest_wave_m`, and `max_wave_seconds`: maxima across
-  non-excluded waves, or zero when no counted waves exist.
+  non-excluded waves. Stored as zero when no counted waves exist, displayed as
+  unavailable in the report.
+- `median_wave_seconds` and `median_speed_kmh`: medians of non-excluded wave
+  durations and per-wave top speeds across the month. Both are null when no
+  counted waves exist.
 - `paddling_distance_m`: sum of available `session_metrics.paddlingDistanceM`;
   missing measurements contribute nothing to the sum.
 
@@ -903,10 +907,10 @@ and are populated from raw commits by `github-analyze`.
 - `analysis`: common `year_month`, `year`, `month`, and `updated_at`, plus
   `sessions`, `waves`, `total_duration_seconds`, `surf_time_seconds`,
   `surf_distance_m`, `paddling_distance_m`, `max_speed_kmh`, `longest_wave_m`,
-  and `max_wave_seconds`.
+  `max_wave_seconds`, `median_wave_seconds`, and `median_speed_kmh`.
 
 Sync initializes only raw tables. `surfilog-analyze` creates and refreshes the
-derived `analysis` table.
+derived `analysis` table and adds the median columns to older databases.
 
 #### Oura Ring (`oura.db`)
 
