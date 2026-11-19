@@ -13,7 +13,15 @@ The report is built from each source's monthly analysis data and includes the la
 - Title format: `Wrap up {month_name} {year}`
 - Slug format: `wrap-up-{month}-{year}`
 - Output path: `posts/wrap-up-{month}-{year}.md` in the data repository
+- Image assets accompany the draft under `posts/assets/wrap-up-{month}-{year}/`.
+  For Hugo, move the Markdown into a leaf bundle such as
+  `content/posts/wrap-up-09-2026/index.md` and place that month's asset directory
+  under `content/posts/wrap-up-09-2026/assets/wrap-up-09-2026/`.
+  This preserves the Markdown image paths.
 - Draft status: `draft: true`
+
+`publish --dry-run` writes a local preview and its images to
+`.cache/report-preview/index.md`.
 
 ## High-Level Layout
 
@@ -77,6 +85,14 @@ Shows:
 
 - checkins
 - unique places visited
+- the three places with the most checkins in that month, including location and visit count
+- a static OpenStreetMap image automatically fitted to the visited places
+
+Place rankings count distinct Foursquare venue IDs. Ties are ordered by place
+name and then venue ID, and months follow the existing UTC checkin grouping.
+Map markers use stored venue coordinates and grow with visit count. A coverage
+caption identifies how many places have valid coordinates. The image includes
+OpenStreetMap attribution.
 
 ### Movies
 
@@ -147,12 +163,17 @@ Individual GPS tracks, spot names, and session share links are not rendered.
 
 ### Weightlifting
 
-Sourced from Strong. Shows the date and name of the report month's latest
-workout, followed by a table with one row per exercise:
+Sourced from Strong. Shows the date, name, and total duration of the report month's
+latest workout, followed by a table with one row per exercise:
 
-| Exercise | Best weight | MoM | YoY |
-| --- | ---: | ---: | ---: |
-| Squat (Barbell) | 145 | +4% | +26% |
+| Exercise | Best weight | MoM | YoY | Total volume (lb × reps) |
+| --- | ---: | ---: | ---: | ---: |
+| Squat (Barbell) | 145 | +4% | +26% | 2,175 |
+
+Total volume sums each set's recorded weight multiplied by its repetitions in
+that workout. A missing weight or repetition count makes that exercise's volume
+unavailable. Bodyweight sets retain their recorded weight. Total time uses the
+session's elapsed duration in Strong; exercise-level time is unavailable.
 
 Best weight is the highest recorded set weight for that exercise in that
 workout, rather than an all-time or monthly record. Comparisons use the same
@@ -190,6 +211,12 @@ Shows:
 - commits, split into Public and Private
 - repos touched, split into Public and Private
 - lines added and lines deleted, split into Public and Private
+
+A static hourly chart shows authored commit counts split by public/private
+visibility. Hours use `America/Los_Angeles`, including daylight saving time.
+The report month follows the existing stored author month. Commit timestamps
+provide an activity distribution. Measuring coding hours would require a separate
+time-tracking source.
 
 Each visibility group has its own MoM and YoY comparison:
 

@@ -195,7 +195,7 @@ def cmd_publish(dry_run: bool = False, skip_sync_analysis: bool = False, last_mo
     """Publish monthly summary to the data repository.
     
     Args:
-        dry_run: If True, validate config and sync data but skip actual publish.
+        dry_run: If True, write and display a local preview using current data.
         skip_sync_analysis: If True, reuse current analysis data without rerunning sync/analyze.
         last_month: If True, publish the summary for the previous calendar month.
     """
@@ -208,12 +208,14 @@ def cmd_publish(dry_run: bool = False, skip_sync_analysis: bool = False, last_mo
         try:
             publisher = Publisher()
             markdown = publisher.generate_markdown(last_month=last_month)
+            preview = publisher.save_preview(markdown)
             
             print("=" * 60)
             print(markdown)
             print("=" * 60)
             print("\n=== DRY RUN COMPLETE ===")
-            print("No changes were made. Use 'publish' without --dry-run to publish.")
+            print(f"Preview saved to {preview}")
+            print("Use 'publish' without --dry-run to publish.")
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)

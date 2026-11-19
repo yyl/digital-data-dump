@@ -382,6 +382,12 @@ to supply the separate Workout section and `workouts.yaml`.
   are seconds. CSV weights retain their unspecified export units. Comparable
   history requires consistent units; API snapshot replacement rebuilds the
   entire history in the configured unit.
+- **Total volume and time:** `SUM(weight * reps)` across the selected workout's
+  sets for each exercise, using stored weights and repetitions. A missing weight
+  or repetition count yields null volume for the whole exercise. Recorded zero
+  weights yield zero volume. The session's `duration_minutes` supplies total
+  elapsed workout time. Strong does not supply a complete exercise-by-exercise
+  elapsed-time breakdown.
 - **Historical baseline:** the same exercise's maximum set weight in its latest
   session within the previous calendar month (MoM) or the same calendar month
   one year earlier (YoY). That session may precede the comparison month's final
@@ -866,6 +872,19 @@ Analysis fields:
 - `private_additions`
 - `public_deletions`
 - `private_deletions`
+
+`analysis_by_hour` stores authored commit counts by `(year_month, hour)`,
+with separate public and private counts. `github-analyze` rebuilds this table
+alongside the existing monthly totals. Hours are converted to
+`America/Los_Angeles`; the month retains the existing `date_month` convention.
+Report generation supports an older database by aggregating its commit timestamps.
+
+Report images are prepared in `Publisher.report_assets` and committed beside the
+Markdown in the same Git tree. SVG charts are text blobs. PNG maps use base64 Git
+blobs. `publish --dry-run` writes both to `.cache/report-preview/` for local
+inspection. Map viewport fitting handles longitude wrap and excludes invalid
+coordinates. Only visible OpenStreetMap tiles are fetched, using an identifying
+User-Agent and a seven-day local cache.
 
 `commits` and `repos_touched` remain combined totals for existing activity-data
 consumers. New visibility fields are nullable during analysis schema migration

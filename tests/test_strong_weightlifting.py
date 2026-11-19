@@ -67,11 +67,11 @@ def test_best_weights_use_latest_workout_and_latest_session_per_historical_exerc
     assert summary['started_at'] == '2026-10-20 10:00:00'
     assert summary['workout_name'] == 'Full'
     assert summary['exercises'] == [
-        {'exercise_name': 'Squat', 'weight': 110, 'comparisons': {'mom': 10.0, 'yoy': 37.5}},
-        {'exercise_name': 'Press', 'weight': 55, 'comparisons': {'mom': None, 'yoy': None}},
-        {'exercise_name': 'Bodyweight', 'weight': 0, 'comparisons': {'mom': None, 'yoy': -100.0}},
-        {'exercise_name': 'New', 'weight': 12.5, 'comparisons': {'mom': None, 'yoy': None}},
-        {'exercise_name': 'Unknown', 'weight': None, 'comparisons': {'mom': None, 'yoy': None}},
+        {'exercise_name': 'Squat', 'weight': 110, 'total_volume': 1050, 'comparisons': {'mom': 10.0, 'yoy': 37.5}},
+        {'exercise_name': 'Press', 'weight': 55, 'total_volume': 525, 'comparisons': {'mom': None, 'yoy': None}},
+        {'exercise_name': 'Bodyweight', 'weight': 0, 'total_volume': 0, 'comparisons': {'mom': None, 'yoy': -100.0}},
+        {'exercise_name': 'New', 'weight': 12.5, 'total_volume': 62.5, 'comparisons': {'mom': None, 'yoy': None}},
+        {'exercise_name': 'Unknown', 'weight': None, 'total_volume': None, 'comparisons': {'mom': None, 'yoy': None}},
     ]
 
 
@@ -81,6 +81,20 @@ def test_calendar_comparisons_roll_january_back_to_december(db):
     add_workout(db, '2026-01-31 09:00:00', [('Squat', 80)])
     summary = StrongAnalytics(db).get_weightlifting_summary('2027-01')
     assert summary['exercises'][0]['comparisons'] == {'mom': -20.0, 'yoy': 25.0}
+
+
+def test_volume_sums_each_sets_repetitions_and_preserves_missing_values(db):
+    add_workout(db, '2026-10-20 09:00:00', [('Squat', 100), ('Squat', 120), ('Press', 40), ('Press', 50)])
+    with db.get_connection() as conn:
+        conn.execute("UPDATE workouts SET duration_minutes = 75")
+        conn.execute("UPDATE exercises SET reps = 8 WHERE exercise_name = 'Squat' AND weight = 100")
+        conn.execute("UPDATE exercises SET reps = 3 WHERE exercise_name = 'Squat' AND weight = 120")
+        conn.execute("UPDATE exercises SET reps = NULL WHERE exercise_name = 'Press' AND weight = 50")
+    summary = StrongAnalytics(db).get_weightlifting_summary('2026-10')
+    assert summary['duration_minutes'] == 75
+    assert summary['exercises'][0]['total_volume'] == 1160
+    assert summary['exercises'][1]['weight'] == 50
+    assert summary['exercises'][1]['total_volume'] is None
 
 
 def test_missing_comparison_months_do_not_fall_back_to_other_history(db):
@@ -132,7 +146,8 @@ def test_csv_import_reimport_and_publish_use_latest_export_weights(db, tmp_path,
     markdown = publisher.generate_markdown()
     assert '## Weightlifting' in markdown
     assert '**Latest workout**: 2026-10-20 — Full' in markdown
-    assert '| Squat | 100 | +25% | +100% |' in markdown
+    assert '**Total Time**: 1h 0m' in markdown
+    assert '| Squat | 100 | +25% | +100% | 950 |' in markdown
     assert '"strong"' in markdown
     assert '## Workout\n' not in markdown
     assert '## Weightlifting' not in publisher.generate_markdown('2026-08')
@@ -145,15 +160,15 @@ def test_weightlifting_table_preserves_fractional_weights_and_escapes_names():
         'strong': {
             'workout_name': 'Full', 'started_at': '2026-10-20 09:00:00',
             'exercises': [
-                {'exercise_name': 'Dumbbell | Press\nSeated', 'weight': 12.5},
+                {'exercise_name': 'Dumbbell | Press\nSeated', 'weight': 12.5, 'total_volume': 187.5},
                 {'exercise_name': 'Unknown', 'weight': None},
                 {'exercise_name': 'Bodyweight', 'weight': 0,
                  'comparisons': {'mom': 0, 'yoy': None}},
             ],
         },
     })
-    assert '| Dumbbell \\| Press Seated | 12.5 | N/A | N/A |' in markdown
-    assert '| Unknown | N/A | N/A | N/A |' in markdown
+    assert '| Dumbbell \\| Press Seated | 12.5 | N/A | N/A | 187.5 |' in markdown
+    assert '| Unknown | N/A | N/A | N/A | N/A |' in markdown
     assert '| Bodyweight | 0 | +0% | N/A |' in markdown
     assert 'units used in the Strong export' in markdown
     assert markdown.index('## Workout\n') < markdown.index('## Weightlifting\n')

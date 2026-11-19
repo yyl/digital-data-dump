@@ -8,6 +8,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "overcast-to-sqlite>=0.3.0",
     "PyGithub>=2.8.1",
+    "Pillow>=11.0.0",
 ]
 
 [build-system]

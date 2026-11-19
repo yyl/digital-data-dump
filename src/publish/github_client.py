@@ -1,6 +1,7 @@
 """GitHub client for committing files to a repository."""
 
 import logging
+import base64
 import time
 from typing import Dict, Any
 from github import Auth, Github, GithubException
@@ -43,7 +44,7 @@ class GitHubClient:
     
     def create_or_update_files(
         self,
-        files: Dict[str, str],
+        files: Dict[str, str | bytes],
         commit_message: str
     ) -> Dict[str, Any]:
         """Create or update multiple files in a single commit.
@@ -52,7 +53,7 @@ class GitHubClient:
         and commit them atomically. Preserves all existing files via base_tree.
         
         Args:
-            files: Dictionary mapping repo file paths to content strings.
+            files: Dictionary mapping repo file paths to text or binary content.
             commit_message: Commit message for the single commit.
             
         Returns:
@@ -83,7 +84,7 @@ class GitHubClient:
 
     def _create_or_update_files_once(
         self,
-        files: Dict[str, str],
+        files: Dict[str, str | bytes],
         commit_message: str
     ) -> Dict[str, Any]:
         """Create or update multiple files in a single attempt."""
@@ -106,11 +107,17 @@ class GitHubClient:
         from github import InputGitTreeElement
         tree_elements = []
         for file_path, content in files.items():
+            blob = {}
+            if isinstance(content, bytes):
+                created = self.repo.create_git_blob(base64.b64encode(content).decode("ascii"), "base64")
+                blob['sha'] = created.sha
+            else:
+                blob['content'] = content
             element = InputGitTreeElement(
                 path=file_path,
                 mode="100644",
                 type="blob",
-                content=content,
+                **blob,
             )
             tree_elements.append(element)
             logger.info(f"Adding file to commit: {file_path}")

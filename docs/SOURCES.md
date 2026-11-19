@@ -54,6 +54,12 @@ Tracks Swarm/Foursquare checkins and place visits.
 
 Use the client ID and secret when you need to run the OAuth flow again. The API key is optional and is used to enrich venue details.
 
+Travel maps use the stored place coordinates and OpenStreetMap tiles, with no
+additional API key. The first preview or publish downloads the visible map tiles
+and caches them under `.cache/map-tiles/` for at least seven days. Tile download
+failures are reported so the map can be retried. Venue coordinates are supplied
+by the existing Foursquare sync.
+
 ## Letterboxd
 
 Tracks watched movies and ratings.

@@ -1,10 +1,35 @@
 """Analytics for GitHub activity data."""
 
+from collections import defaultdict
+from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from .database import GitHubDatabase
-from .models import CREATE_ANALYSIS_TABLE, ANALYSIS_INDEXES, LINE_CHANGE_METRICS, VISIBILITY_METRICS
+from .models import (
+    ACTIVITY_TIMEZONE, CREATE_ANALYSIS_TABLE, CREATE_HOURLY_ANALYSIS_TABLE,
+    ANALYSIS_INDEXES, LINE_CHANGE_METRICS, VISIBILITY_METRICS,
+)
 from ..time_utils import utc_now_iso
+
+
+def hourly_activity(commits) -> list[dict]:
+    """Count authored commits by Pacific hour, retaining the stored report month."""
+    hours = defaultdict(lambda: [0, 0])
+    zone = ZoneInfo(ACTIVITY_TIMEZONE)
+    for commit in commits:
+        try:
+            authored = datetime.fromisoformat(commit['author_date'].replace('Z', '+00:00'))
+        except (ValueError, TypeError, AttributeError):
+            continue
+        if authored.tzinfo is None:
+            continue
+        key = (commit['date_month'], authored.astimezone(zone).hour)
+        hours[key][int(bool(commit['is_private']))] += 1
+    return [
+        {'year_month': month, 'hour': hour, 'public_commits': counts[0], 'private_commits': counts[1]}
+        for (month, hour), counts in sorted(hours.items())
+    ]
 
 
 class GitHubAnalytics:
@@ -48,7 +73,17 @@ class GitHubAnalytics:
         count = 0
         with self.db.get_connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
+            conn.execute(CREATE_HOURLY_ANALYSIS_TABLE)
             cursor = conn.cursor()
+            hourly = hourly_activity(conn.execute("""
+                SELECT author_date, date_month, is_private FROM commits
+                WHERE date_month IS NOT NULL AND date_month != ''
+            """))
+            conn.execute("DELETE FROM analysis_by_hour")
+            conn.executemany("""
+                INSERT INTO analysis_by_hour (year_month, hour, public_commits, private_commits)
+                VALUES (:year_month, :hour, :public_commits, :private_commits)
+            """, hourly)
             
             cursor.execute("""
                 SELECT date_month, COUNT(*) AS commits, COUNT(DISTINCT repo) AS repos_touched,

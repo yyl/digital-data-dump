@@ -12,6 +12,7 @@ class GitHubDatabase(BaseDatabase):
 
     source_name = 'GitHub'
     raw_table_names = frozenset({'commits'})
+    analysis_table_names = frozenset({'analysis', 'analysis_by_hour'})
     
     def __init__(self, db_path: Optional[str] = None):
         """Initialize database manager.

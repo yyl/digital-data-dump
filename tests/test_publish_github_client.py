@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from src.publish.github_client import GitHubClient, GitHubClientError
@@ -11,6 +12,21 @@ class FakeGithubException(Exception):
 
 
 class TestPublishGitHubClient(unittest.TestCase):
+    @patch("src.publish.github_client.Github")
+    def test_binary_assets_and_markdown_are_committed_in_the_same_tree(self, mock_github):
+        client = GitHubClient("token", "owner", "repo")
+        client.repo.create_git_blob.return_value.sha = "png-blob-sha"
+        with patch.dict("sys.modules", {"github": SimpleNamespace(InputGitTreeElement=SimpleNamespace)}):
+            result = client.create_or_update_files(
+                {"posts/report.md": "![Map](assets/map.png)", "posts/assets/map.png": b"\x89PNG\r\n"},
+                "Publish report and map",
+            )
+        client.repo.create_git_blob.assert_called_once_with("iVBORw0K", "base64")
+        elements = client.repo.create_git_tree.call_args.args[0]
+        assert elements[0].content == "![Map](assets/map.png)"
+        assert elements[1].sha == "png-blob-sha"
+        assert result["file_paths"] == ["posts/report.md", "posts/assets/map.png"]
+
     @patch("src.publish.github_client.Github")
     @patch("src.publish.github_client.Auth")
     def test_init_uses_auth_token(self, mock_auth, mock_github):

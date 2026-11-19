@@ -21,7 +21,7 @@ class StrongAnalytics:
         self.db = db or StrongDatabase()
 
     def get_weightlifting_summary(self, year_month: str) -> Optional[Dict[str, Any]]:
-        """Get the latest workout's best set weights and calendar comparisons.
+        """Get the latest workout's weights, exercise volumes, and duration.
 
         Historical baselines use each exercise's latest session in the
         comparison month, even if it wasn't in that month's final workout.
@@ -38,7 +38,7 @@ class StrongAnalytics:
             chronology = ('COALESCE(w.started_at_utc, w.started_at)'
                           if 'started_at_utc' in columns else 'w.started_at')
             workout = conn.execute(f"""
-                SELECT w.id, w.workout_name, w.started_at
+                SELECT w.id, w.workout_name, w.started_at, w.duration_minutes
                 FROM workouts w
                 WHERE strftime('%Y-%m', w.started_at) = ?
                 ORDER BY julianday({chronology}) DESC, w.id DESC
@@ -48,7 +48,9 @@ class StrongAnalytics:
                 return None
 
             exercises = [dict(row) for row in conn.execute("""
-                SELECT exercise_name, MAX(weight) AS weight
+                SELECT exercise_name, MAX(weight) AS weight,
+                       CASE WHEN COUNT(*) = COUNT(weight * reps)
+                            THEN SUM(weight * reps) END AS total_volume
                 FROM exercises
                 WHERE workout_id = ?
                 GROUP BY exercise_name
@@ -95,6 +97,7 @@ class StrongAnalytics:
         summary = {
             'workout_name': workout['workout_name'],
             'started_at': workout['started_at'],
+            'duration_minutes': workout['duration_minutes'],
             'exercises': exercises,
         }
         if state and state['weight_unit']:

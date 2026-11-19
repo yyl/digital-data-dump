@@ -6,6 +6,17 @@ VISIBILITY_METRICS = (
 LINE_CHANGE_METRICS = (
     "public_additions", "private_additions", "public_deletions", "private_deletions",
 )
+ACTIVITY_TIMEZONE = "America/Los_Angeles"
+
+CREATE_HOURLY_ANALYSIS_TABLE = """
+CREATE TABLE IF NOT EXISTS analysis_by_hour (
+    year_month TEXT NOT NULL,
+    hour INTEGER NOT NULL CHECK (hour BETWEEN 0 AND 23),
+    public_commits INTEGER NOT NULL,
+    private_commits INTEGER NOT NULL,
+    PRIMARY KEY (year_month, hour)
+)
+"""
 
 CREATE_COMMITS_TABLE = """
 CREATE TABLE IF NOT EXISTS commits (

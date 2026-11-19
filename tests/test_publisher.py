@@ -224,6 +224,16 @@ class TestPublisher(unittest.TestCase):
         )
         self.assertEqual(result["url"], "https://example.com/data-post")
 
+        self.publisher.report_assets = {
+            "assets/wrap-up-04-2026/travel-map.png": b"map-png",
+            "assets/wrap-up-04-2026/commit-hours.svg": "<svg/>",
+        }
+        self.publisher.publish()
+        files = data_repo_client.create_or_update_files.call_args.kwargs['files']
+        self.assertEqual(files["posts/wrap-up-04-2026.md"], "# Report\n")
+        self.assertEqual(files["posts/assets/wrap-up-04-2026/travel-map.png"], b"map-png")
+        self.assertEqual(files["posts/assets/wrap-up-04-2026/commit-hours.svg"], "<svg/>")
+
     @patch.object(Publisher, "_one_year_lookback_year_month", return_value="2027-04")
     @patch("src.publish.publisher.Config")
     def test_backfill_commits_full_history_to_data_repo_and_lookback_history_to_blog_repo(

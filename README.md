@@ -83,6 +83,9 @@ uv run main.py analyze
 uv run main.py publish --dry-run
 ```
 
+The dry run also saves the post and image assets to
+`.cache/report-preview/index.md` for local review.
+
 ### Publish the Monthly Report
 
 ```bash

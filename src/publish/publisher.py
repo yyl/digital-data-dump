@@ -1,6 +1,7 @@
 """Publisher module for generating and committing monthly summaries."""
 
 from datetime import date, timedelta
+from pathlib import Path
 import logging
 from typing import Dict, Any, Optional, List
 
@@ -19,12 +20,15 @@ from ..blog.database import BlogDatabase
 from ..hardcover.database import HardcoverDatabase
 from ..github.database import GitHubDatabase
 from ..github.models import LINE_CHANGE_METRICS, VISIBILITY_METRICS
+from ..github.analytics import hourly_activity
 from ..oura.database import OuraDatabase
 from ..surfilog.database import SurfilogDatabase
 from ..surfilog.models import METRICS as SURFILOG_METRICS
 from .github_client import GitHubClient
 from .markdown_generator import MarkdownGenerator
 from .data_generator import DataGenerator
+from .activity_chart import render_commit_hours
+from .travel_map import render_travel_map, valid_map_places
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +80,7 @@ class Publisher:
         self.surfilog_db = surfilog_db or SurfilogDatabase()
         self.github_client = github_client
         self.markdown_generator = MarkdownGenerator()
+        self.report_assets: Dict[str, str | bytes] = {}
         self.data_generator = DataGenerator(
             readwise_db=self.readwise_db,
             foursquare_db=self.foursquare_db,
@@ -232,6 +237,46 @@ class Publisher:
             query,
             (year_month,),
         )
+
+    def _get_github_hourly_activity(self, year_month: str) -> List[Dict[str, Any]]:
+        """Read persisted hourly counts, with support for older local databases."""
+        with self.github_activity_db.read_connection(required_tables=('commits',)) as conn:
+            if conn is None:
+                return []
+            if conn.execute("""
+                SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'analysis_by_hour'
+            """).fetchone():
+                return [dict(row) for row in conn.execute("""
+                    SELECT hour, public_commits, private_commits FROM analysis_by_hour
+                    WHERE year_month = ? ORDER BY hour
+                """, (year_month,))]
+            columns = {row['name'] for row in conn.execute("PRAGMA table_info(commits)")}
+            visibility = 'is_private' if 'is_private' in columns else '0'
+            return hourly_activity(conn.execute(f"""
+                SELECT author_date, date_month, {visibility} AS is_private FROM commits
+                WHERE date_month = ?
+            """, (year_month,)))
+
+    def _add_report_asset(self, year_month: str, name: str, content: str | bytes) -> str:
+        year, month = year_month.split('-')
+        path = f"assets/wrap-up-{month}-{year}/{name}"
+        self.report_assets[path] = content
+        return path
+
+    def save_preview(self, markdown: str) -> Path:
+        """Write the rendered post and its images together for local review."""
+        directory = Config.PROJECT_ROOT / '.cache' / 'report-preview'
+        directory.mkdir(parents=True, exist_ok=True)
+        preview = directory / 'index.md'
+        preview.write_text(markdown, encoding='utf-8')
+        for name, content in self.report_assets.items():
+            path = directory / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if isinstance(content, bytes):
+                path.write_bytes(content)
+            else:
+                path.write_text(content, encoding='utf-8')
+        return preview
 
     def _get_surfilog_analysis(self, year_month: str) -> Optional[Dict[str, Any]]:
         return self._fetch_analysis(
@@ -424,6 +469,23 @@ class Publisher:
         )
         return [row['name'] for row in rows if row.get('name')]
 
+    def _get_foursquare_places(self, year_month: str) -> List[Dict[str, Any]]:
+        """Get visited places ranked by monthly checkin count."""
+        return self._fetch_rows(
+            self.foursquare_db,
+            """
+            SELECT p.fsq_place_id, p.name, p.locality, p.region, p.country,
+                   p.latitude, p.longitude, COUNT(*) AS visits
+            FROM checkins c
+            JOIN places p ON p.fsq_place_id = c.place_fsq_id
+            WHERE strftime('%Y-%m', c.created_at, 'unixepoch') = ?
+            GROUP BY p.fsq_place_id
+            ORDER BY visits DESC, p.name COLLATE NOCASE ASC, p.fsq_place_id ASC
+            """,
+            (year_month,),
+            required_tables=('places', 'checkins'),
+        )
+
     def _get_new_github_repos(self, year_month: str) -> List[str]:
         """Get public repos that appear for the first time in the given month."""
         # SELECT * also supports legacy public-only databases without is_private.
@@ -601,7 +663,11 @@ class Publisher:
         commit_message = f"feat: Add monthly report draft for {month}/{year}"
         
         result = data_repo_client.create_or_update_files(
-            files={file_path: markdown_content},
+            files={
+                file_path: markdown_content,
+                **{f"{Config.DATA_REPO_POSTS_DIR}/{path}": content
+                   for path, content in self.report_assets.items()},
+            },
             commit_message=commit_message
         )
         
@@ -666,6 +732,7 @@ class Publisher:
         Returns:
             Generated markdown content as string.
         """
+        self.report_assets = {}
         if not year_month:
             year_month = self._get_target_year_month(last_month)
         
@@ -717,9 +784,23 @@ class Publisher:
             data['foursquare'] = {
                 'checkins': foursquare['checkins'],
                 'unique_places': foursquare['unique_places'],
+                'places': self._get_foursquare_places(year_month),
                 'new_places': self._get_new_places(year_month),
                 'comparisons': foursquare_comparisons
             }
+            places = data['foursquare']['places']
+            if places:
+                mapped = valid_map_places(places)
+                image = render_travel_map(mapped)
+                if image is not None:
+                    data['foursquare']['map_image'] = self._add_report_asset(
+                        year_month, 'travel-map.png', image
+                    )
+                data['foursquare']['map_coverage'] = (
+                    f"Mapped {len(mapped)} of {len(places)} visited places. "
+                    "Marker size reflects monthly visits."
+                    if mapped else "Map unavailable because the visited places have no valid coordinates."
+                )
         
         # Get Letterboxd analysis
         letterboxd = self._get_letterboxd_analysis(year_month)
@@ -831,6 +912,11 @@ class Publisher:
                 'new_repos': self._get_new_github_repos(year_month),
                 'comparisons': github_comparisons
             }
+            hours = self._get_github_hourly_activity(year_month)
+            if hours:
+                data['github']['activity_chart'] = self._add_report_asset(
+                    year_month, 'commit-hours.svg', render_commit_hours(hours)
+                )
 
         surfing = self._get_surfilog_analysis(year_month)
         if surfing:

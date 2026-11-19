@@ -220,14 +220,41 @@ categories: ["Summary"]
         
         checkins_cmp = format_comparison_suffix(comparisons.get('checkins'))
         places_cmp = format_comparison_suffix(comparisons.get('unique_places'))
+        map_block = ""
+        if foursquare_data.get('map_image'):
+            map_block = f"\n![Places visited]({foursquare_data['map_image']})\n"
+        if foursquare_data.get('map_coverage'):
+            map_block += f"\n{foursquare_data['map_coverage']}\n"
         
         return f"""
 ## Travel
 
 - **Checkins**: {checkins}{checkins_cmp}
 - **Unique Places Visited**: {unique_places}{places_cmp}
+{map_block}
+{self._generate_top_places_block(foursquare_data.get('places', []))}
 {self._generate_whats_new_items(foursquare_data.get('new_places', []), 'new place visited', 'new places visited')}
 """
+
+    def _generate_top_places_block(self, places: list[Dict[str, Any]]) -> str:
+        """Show the three places with the most checkins in the report month."""
+        if not places:
+            return ""
+        lines = [
+            "",
+            "### Most Visited Places",
+            "",
+            "| Place | Location | Visits |",
+            "| --- | --- | ---: |",
+        ]
+        for place in places[:3]:
+            name = self._escape_table_text(place.get('name') or 'Unknown place')
+            location = ", ".join(
+                part for part in (place.get('locality'), place.get('region'), place.get('country'))
+                if part
+            )
+            lines.append(f"| {name} | {self._escape_table_text(location)} | {place['visits']} |")
+        return "\n".join(lines)
     
     def _generate_letterboxd_section(self, letterboxd_data: Dict[str, Any]) -> str:
         """Generate the Letterboxd statistics section."""
@@ -445,15 +472,29 @@ categories: ["Summary"]
 ## Code
 
 {stats}
+{self._generate_commit_activity_image(github_data)}
 {self._generate_whats_new_items(github_data.get('new_repos', []), 'new repo')}
 {self._generate_commit_groups_block(github_data.get('commit_groups', []))}
 """
 
+    def _generate_commit_activity_image(self, github_data: Dict[str, Any]) -> str:
+        path = github_data.get('activity_chart')
+        if not path:
+            return ""
+        return (
+            f"\n### Commits by Hour\n\n"
+            f"![Public and private authored commits by hour in Pacific time]({path})\n\n"
+            "Hours use America/Los_Angeles. Bars count authored commits.\n"
+        )
+
     def _generate_weightlifting_section(self, strong_data: Dict[str, Any]) -> str:
-        """Show the latest Strong session's maximum recorded weight per exercise."""
+        """Show the latest Strong session's weights, exercise volumes, and duration."""
         workout_name = self._clean_text(strong_data.get('workout_name'))
         workout_date = self._format_date(strong_data.get('started_at'))
+        duration_minutes = strong_data.get('duration_minutes')
+        duration_seconds = duration_minutes * 60 if duration_minutes is not None else None
         unit = strong_data.get('weight_unit')
+        volume_label = f"Total volume ({unit} × reps)" if unit in ('lb', 'kg') else "Total volume (weight × reps)"
         weight_description = (
             f"Best set weight per exercise, in {'pounds (lb)' if unit == 'lb' else 'kilograms (kg)'}."
             if unit in ('lb', 'kg') else
@@ -462,20 +503,24 @@ categories: ["Summary"]
         lines = [
             "", "## Weightlifting", "",
             f"**Latest workout**: {workout_date} — {workout_name}", "",
+            f"**Total Time**: {self._format_activity_time(duration_seconds)}",
+            "",
             weight_description,
             "MoM and YoY compare each exercise's latest session in the previous month and the same month last year.",
             "",
-            "| Exercise | Best weight | MoM | YoY |",
-            "| --- | ---: | ---: | ---: |",
+            f"| Exercise | Best weight | MoM | YoY | {volume_label} |",
+            "| --- | ---: | ---: | ---: | ---: |",
         ]
         for exercise in strong_data['exercises']:
             name = self._escape_table_text(self._clean_text(exercise['exercise_name']))
             weight = exercise.get('weight')
             weight_display = f"{weight:,.10f}".rstrip('0').rstrip('.') if weight is not None else "N/A"
+            volume = exercise.get('total_volume')
+            volume_display = f"{volume:,.10f}".rstrip('0').rstrip('.') if volume is not None else "N/A"
             comparisons = exercise.get('comparisons', {})
             lines.append(
                 f"| {name} | {weight_display} | {format_change(comparisons.get('mom'))} "
-                f"| {format_change(comparisons.get('yoy'))} |"
+                f"| {format_change(comparisons.get('yoy'))} | {volume_display} |"
             )
         lines.append("")
         return "\n".join(lines)
