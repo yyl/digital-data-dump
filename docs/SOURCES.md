@@ -243,6 +243,28 @@ authentication or download failures stop the pipeline rather than publish a
 partially downloaded surfing snapshot. The standalone login probe remains
 available as `uv run python scripts/surfilog_login.py`.
 
+## Kaya
+
+Place a Kaya CSV export in `<storage-root>/files/` with its original
+`KAYA-Export-<timestamp>.csv` name, then run `uv run main.py kaya-analyze`.
+When several exports are present, D3 uses the latest filename timestamp.
+Both `kaya-sync` and `kaya-analyze` accept an explicit CSV path.
+
+Full and partial exports both merge into the stored history. D3 skips matching
+records and keeps records missing from the new file. A malformed file fails
+before any climbs are added. Kaya exports have no source ID, so an edited record
+can be imported as a new entry.
+
+Kaya requires no credentials. Set `KAYA_TIMEZONE` to an IANA timezone if your
+climbing days should use a timezone other than the default
+`America/Los_Angeles`. For scheduled runs, put the export in the data
+repository's `files/` directory. The workflow also reads the optional
+`KAYA_TIMEZONE` repository variable.
+
+`sync`, `analyze`, normal `publish`, and `backfill` look for the export
+automatically. If the file is absent, analysis uses any previously imported
+climbs.
+
 ## Blog
 
 Tracks published blog posts from a public Hugo JSON index.

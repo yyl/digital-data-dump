@@ -60,6 +60,10 @@ class Config:
     SURFILOG_EMAIL: str = os.getenv("SURFILOG_EMAIL", "").strip()
     SURFILOG_PASSWORD: str = os.getenv("SURFILOG_PASSWORD", "")
     SURFILOG_DATABASE_PATH = DATA_DIR / "surfilog.db"
+
+    # Kaya CSV timestamps are converted to the reporting timezone before analysis.
+    KAYA_DATABASE_PATH = DATA_DIR / "kaya.db"
+    KAYA_TIMEZONE = _env_or_default("KAYA_TIMEZONE", "America/Los_Angeles")
     
     # ==========================================================================
     # Foursquare Configuration

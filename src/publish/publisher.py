@@ -1,6 +1,7 @@
 """Publisher module for generating and committing monthly summaries."""
 
 from datetime import date, timedelta
+import json
 from pathlib import Path
 import logging
 from typing import Dict, Any, Optional, List
@@ -25,6 +26,7 @@ from ..oura.database import OuraDatabase
 from ..surfilog.database import SurfilogDatabase
 from ..surfilog.models import METRICS as SURFILOG_METRICS
 from ..surfilog.models import WAVE_MEDIAN_METRICS
+from ..kaya.database import KayaDatabase
 from .github_client import GitHubClient
 from .markdown_generator import MarkdownGenerator
 from .data_generator import DataGenerator
@@ -51,6 +53,7 @@ class Publisher:
         oura_db: Optional[OuraDatabase] = None,
         github_client: Optional[GitHubClient] = None,
         surfilog_db: Optional[SurfilogDatabase] = None,
+        kaya_db: Optional[KayaDatabase] = None,
     ):
         """Initialize publisher.
         
@@ -67,6 +70,7 @@ class Publisher:
             oura_db: Oura Ring database manager.
             github_client: GitHub client for committing files.
             surfilog_db: Surfilog session and wave database manager.
+            kaya_db: Kaya climbing log database manager.
         """
         self.readwise_db = readwise_db or ReadwiseDatabase()
         self.foursquare_db = foursquare_db or FoursquareDatabase()
@@ -79,6 +83,7 @@ class Publisher:
         self.github_activity_db = github_activity_db or GitHubDatabase()
         self.oura_db = oura_db or OuraDatabase()
         self.surfilog_db = surfilog_db or SurfilogDatabase()
+        self.kaya_db = kaya_db or KayaDatabase()
         self.github_client = github_client
         self.markdown_generator = MarkdownGenerator()
         self.report_assets: Dict[str, str | bytes] = {}
@@ -94,6 +99,7 @@ class Publisher:
             github_activity_db=self.github_activity_db,
             oura_db=self.oura_db,
             surfilog_db=self.surfilog_db,
+            kaya_db=self.kaya_db,
         )
     
     def _fetch_analysis(
@@ -288,6 +294,11 @@ class Publisher:
             for metric in ('max_wave_seconds', 'max_speed_kmh', 'longest_wave_m'):
                 row[metric] = None
         return row
+
+    def _get_kaya_analysis(self, year_month: str) -> Optional[Dict[str, Any]]:
+        return self._fetch_analysis(
+            self.kaya_db, "SELECT * FROM analysis WHERE year_month = ?", (year_month,),
+        )
 
     def _get_oura_analysis(self, year_month: str) -> Optional[Dict[str, Any]]:
         """Get Oura sleep & readiness analysis for a specific month.
@@ -588,6 +599,7 @@ class Publisher:
             self.github_activity_db,
             self.oura_db,
             self.surfilog_db,
+            self.kaya_db,
         ]:
             rows = self._fetch_rows(db, query, ())
             for row in rows:
@@ -933,6 +945,14 @@ class Publisher:
                     surfing, self._get_surfilog_analysis, year_month, metrics
                 ),
             }
+
+        bouldering = self._get_kaya_analysis(year_month)
+        if bouldering:
+            bouldering['grade_counts'] = json.loads(bouldering['grade_counts'])
+            bouldering['comparisons'] = compute_comparisons(
+                bouldering, self._get_kaya_analysis, year_month, ['climbing_days', 'sends']
+            )
+            data['kaya'] = bouldering
 
         # Get Oura analysis
         oura = self._get_oura_analysis(year_month)

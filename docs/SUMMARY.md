@@ -35,10 +35,11 @@ The report contains:
 6. `Code`
 7. `Workout`
 8. `Surfing`
-9. `Weightlifting`
-10. `Travel`
-11. `Movies`
-12. `Sleep & Readiness`
+9. `Bouldering`
+10. `Weightlifting`
+11. `Travel`
+12. `Movies`
+13. `Sleep & Readiness`
 
 Only sections with available data are included.
 
@@ -168,6 +169,16 @@ The report uses session-local calendar months. Excluded waves remain in raw
 storage but do not contribute to wave counts, riding measurements, or records.
 Individual GPS tracks, spot names, and session share links are not rendered.
 
+### Bouldering
+
+Sourced from Kaya. The report shows days with a logged climb, total sends,
+recorded attempts, flashes, onsights, and a send count by grade. Redpoints,
+flashes, and onsights count as sends. Days climbed and sends include MoM and YoY
+changes. Recorded attempts sum the counts in that month's logs, including logs
+without a send. The report shows how many logs are missing a count when the
+total is partial and displays `N/A` when every count is missing.
+The hardest V grade appears when there is a send with a numeric V grade.
+
 ### Weightlifting
 
 Sourced from Strong. Shows the date, name, and total duration of the report month's
@@ -289,3 +300,7 @@ Those files are not the markdown report itself, but they are derived from the sa
 `surfing.yaml` includes `month`, `sessions`, `waves`, `total_duration_seconds`,
 `surf_time_seconds`, `surf_distance_m`, `paddling_distance_m`, `max_speed_kmh`,
 `longest_wave_m`, and `max_wave_seconds`.
+
+`bouldering.yaml` includes `month`, `climbing_days`, `sends`, `flashes`, and
+`onsights`. When available, `hardest_v_grade` holds the numeric part of the
+highest V grade sent, such as `4` for V4.

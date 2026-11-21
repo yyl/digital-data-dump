@@ -22,6 +22,7 @@ from src.publish.publisher import Publisher
 from src.readwise.database import ReadwiseDatabase
 from src.strong.database import StrongDatabase
 from src.surfilog.database import SurfilogDatabase
+from src.kaya.database import KayaDatabase
 
 
 SOURCES = {
@@ -29,7 +30,7 @@ SOURCES = {
     'letterboxd': LetterboxdDatabase, 'overcast': OvercastDatabase,
     'strong': StrongDatabase, 'apple_health': AppleHealthDatabase, 'blog': BlogDatabase,
     'hardcover': HardcoverDatabase, 'github_activity': GitHubDatabase, 'oura': OuraDatabase,
-    'surfilog': SurfilogDatabase,
+    'surfilog': SurfilogDatabase, 'kaya': KayaDatabase,
 }
 
 

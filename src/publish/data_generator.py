@@ -17,6 +17,8 @@ from ..github.models import LINE_CHANGE_METRICS, VISIBILITY_METRICS
 from ..oura.database import OuraDatabase
 from ..surfilog.database import SurfilogDatabase
 from ..surfilog.models import METRICS as SURFILOG_METRICS
+from ..kaya.analytics import COUNT_METRICS as KAYA_COUNT_METRICS
+from ..kaya.database import KayaDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +82,7 @@ class DataGenerator:
         github_activity_db: Optional[GitHubDatabase] = None,
         oura_db: Optional[OuraDatabase] = None,
         surfilog_db: Optional[SurfilogDatabase] = None,
+        kaya_db: Optional[KayaDatabase] = None,
     ):
         """Initialize data generator.
         
@@ -95,6 +98,7 @@ class DataGenerator:
             github_activity_db: GitHub activity database manager.
             oura_db: Oura Ring database manager.
             surfilog_db: Surfilog session and wave database manager.
+            kaya_db: Kaya climbing log database manager.
         """
         self.readwise_db = readwise_db or ReadwiseDatabase()
         self.foursquare_db = foursquare_db or FoursquareDatabase()
@@ -107,6 +111,7 @@ class DataGenerator:
         self.github_activity_db = github_activity_db or GitHubDatabase()
         self.oura_db = oura_db or OuraDatabase()
         self.surfilog_db = surfilog_db or SurfilogDatabase()
+        self.kaya_db = kaya_db or KayaDatabase()
 
     def _limit_records_by_month(
         self,
@@ -298,6 +303,16 @@ class DataGenerator:
             for row in self.surfilog_db.fetch_rows("SELECT * FROM analysis ORDER BY year_month")
         ]
 
+    def _get_all_kaya(self) -> List[Dict[str, Any]]:
+        records = []
+        for row in self.kaya_db.fetch_rows("SELECT * FROM analysis ORDER BY year_month"):
+            record = {"month": row["year_month"]}
+            record.update({metric: row[metric] for metric in KAYA_COUNT_METRICS})
+            if row["hardest_v_grade"] is not None:
+                record["hardest_v_grade"] = row["hardest_v_grade"]
+            records.append(record)
+        return records
+
     def generate_data_files(
         self,
         min_year_month: Optional[str] = None,
@@ -429,6 +444,14 @@ class DataGenerator:
         if surfing_records:
             files["data/activity/surfing.yaml"] = _to_yaml(
                 surfing_records, "Monthly surfing activity data"
+            )
+
+        bouldering_records = self._limit_records_by_month(
+            self._get_all_kaya(), min_year_month, max_year_month,
+        )
+        if bouldering_records:
+            files["data/activity/bouldering.yaml"] = _to_yaml(
+                bouldering_records, "Monthly bouldering activity data"
             )
 
         logger.info(f"Generated {len(files)} data files total")

@@ -19,6 +19,8 @@ from src.workflowy.database import WorkflowyDatabase
 from src.workflowy.analytics import WorkflowyAnalytics
 from src.surfilog.database import SurfilogDatabase
 from src.surfilog.analytics import SurfilogAnalytics
+from src.kaya.database import KayaDatabase
+from src.kaya.analytics import KayaAnalytics
 
 
 def _table_exists(db, table_name: str) -> bool:
@@ -43,6 +45,7 @@ def test_sync_side_init_only_creates_raw_tables(tmp_path):
         SchwabDatabase(str(tmp_path / "schwab.db")),
         WorkflowyDatabase(str(tmp_path / "workflowy.db")),
         SurfilogDatabase(str(tmp_path / "surfilog.db")),
+        KayaDatabase(str(tmp_path / "kaya.db")),
     ]
 
     for db in dbs:
@@ -64,6 +67,7 @@ def test_analytics_creates_analysis_tables_when_missing(tmp_path):
         (GitHubDatabase(str(tmp_path / "github.db")), GitHubAnalytics),
         (WorkflowyDatabase(str(tmp_path / "workflowy.db")), WorkflowyAnalytics),
         (SurfilogDatabase(str(tmp_path / "surfilog.db")), SurfilogAnalytics),
+        (KayaDatabase(str(tmp_path / "kaya.db")), KayaAnalytics),
     ]
 
     for db, analytics_cls in cases:

@@ -2,6 +2,7 @@
 
 from collections import defaultdict
 from datetime import datetime
+from html import escape
 from typing import Dict, Any, Optional
 from zoneinfo import ZoneInfo
 from urllib.parse import quote, urlparse
@@ -53,6 +54,9 @@ class MarkdownGenerator:
 
         if data.get('surfilog'):
             parts.append(self._generate_surfilog_section(data['surfilog']))
+
+        if data.get('kaya'):
+            parts.append(self._generate_bouldering_section(data['kaya']))
 
         if data.get('strong', {}).get('exercises'):
             parts.append(self._generate_weightlifting_section(data['strong']))
@@ -121,6 +125,8 @@ class MarkdownGenerator:
             tags.append("oura")
         if data.get('surfilog'):
             tags.append("surfilog")
+        if data.get('kaya'):
+            tags.append("kaya")
         
         tags_str = ", ".join(f'"{t}"' for t in tags)
         
@@ -357,6 +363,41 @@ categories: ["Summary"]
         for label, metric, value in values:
             suffix = format_comparison_suffix(comparisons.get(metric))
             lines.append(f"- **{label}**: {value}{suffix}")
+        return "\n".join(lines) + "\n"
+
+    def _generate_bouldering_section(self, bouldering: Dict[str, Any]) -> str:
+        """Show monthly Kaya sends, recorded attempts, and send grades."""
+        comparisons = bouldering['comparisons']
+        attempts = bouldering.get('attempts')
+        attempts_display = f"{attempts:,}" if attempts is not None else "N/A"
+        missing = bouldering.get('climbs_missing_attempts')
+        if attempts is not None and missing:
+            label = "log" if missing == 1 else "logs"
+            attempts_display += f" ({missing:,} {label} missing an attempt count)"
+
+        lines = ["", "## Bouldering", ""]
+        for label, metric in (
+            ('Climbing Days', 'climbing_days'),
+            ('Sends', 'sends'),
+        ):
+            suffix = format_comparison_suffix(comparisons.get(metric))
+            lines.append(f"- **{label}**: {bouldering[metric]:,}{suffix}")
+        lines.extend([
+            f"- **Recorded Attempts**: {attempts_display}",
+            f"- **Flashes**: {bouldering['flashes']:,}",
+            f"- **Onsights**: {bouldering['onsights']:,}",
+        ])
+
+        hardest = bouldering['hardest_v_grade']
+        if hardest is not None:
+            lines.append(f"- **Hardest V Grade**: V{hardest}")
+
+        grades = bouldering['grade_counts']
+        if grades:
+            lines.extend(["", "| Grade | Sends |", "| --- | ---: |"])
+            for grade, sends in grades.items():
+                label = self._escape_table_text(escape(self._clean_text(grade) or "Ungraded"))
+                lines.append(f"| {label} | {sends:,} |")
         return "\n".join(lines) + "\n"
 
     def _generate_blog_section(self, blog_data: Dict[str, Any]) -> str:

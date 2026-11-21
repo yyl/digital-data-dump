@@ -41,7 +41,7 @@ def publisher_for(db):
     absent.fetch_rows.return_value = []
     absent.read_connection.return_value.__enter__.return_value = None
     for source in ("readwise", "foursquare", "letterboxd", "overcast", "strong", "apple_health",
-                   "blog", "hardcover", "oura", "surfilog"):
+                   "blog", "hardcover", "oura", "surfilog", "kaya"):
         setattr(publisher, f"{source}_db", absent)
     publisher.github_activity_db = db
     publisher.markdown_generator = MarkdownGenerator()

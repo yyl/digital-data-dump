@@ -3,6 +3,23 @@
 Record meaningful project changes here, newest first. Each entry explains what
 changed, why, and where to find the design, usage, and implementation details.
 
+## 2026-11-20 — Add monthly Kaya bouldering metrics
+
+Adds CSV import for Kaya. Stable local IDs let full and partial exports add new
+climbs while retaining stored history. Imports validate the whole file before
+writing. Older local databases receive IDs in place.
+
+`kaya-analyze` rebuilds calendar months in the configured timezone. Monthly
+sends count redpoints, flashes, and onsights. Recorded attempts sum the usable
+counts in the export and show how many logs lack a count. The Bouldering
+section also includes climbing days and send grades. `bouldering.yaml` supplies
+monthly activity counts and the hardest numeric V grade when available.
+
+See [source setup](SOURCES.md#kaya), [report layout](SUMMARY.md#bouldering),
+[metric definitions](../src/README.md#kaya-kayadb), and
+[regression tests](../tests/test_kaya.py) for duplicate exports, malformed rows,
+local month boundaries, and missing and zero attempt counts.
+
 ## 2026-11-04 — Sync Strong workout history through its backend API
 
 `strong-sync` now uses Strong's unofficial backend when `STRONG_USER` and

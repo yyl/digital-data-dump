@@ -56,6 +56,8 @@ uv run main.py <command>
 | `workflowy-analyze` | Sync Workflowy and recompute monthly nodes added, modified, and removed |
 | `surfilog-sync` | Sync Surfilog sessions, individual waves, and GPS tracks |
 | `surfilog-analyze` | Sync Surfilog and recompute monthly surfing metrics |
+| `kaya-sync [csv_path]` | Import a Kaya bouldering export |
+| `kaya-analyze [csv_path]` | Import an available Kaya export and recompute monthly bouldering metrics |
 | `strong-sync` | Sync Strong through the API when configured; `--csv` replaces history from a complete export |
 | `strong-analyze` | Sync Strong data and refresh monthly analysis for Weightlifting |
 | `apple-health-sync` | Import local DDU Apple Health JSON archives, preserving existing history |

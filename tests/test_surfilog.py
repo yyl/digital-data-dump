@@ -241,7 +241,7 @@ def test_reports_and_yaml_publish_aggregates_with_comparisons_and_date_limits(db
     absent.fetch_rows.return_value = []
     absent.read_connection.return_value.__enter__.return_value = None
     other_sources = ("readwise", "foursquare", "letterboxd", "overcast", "strong",
-                     "apple_health", "blog", "hardcover", "github_activity", "oura")
+                     "apple_health", "blog", "hardcover", "github_activity", "oura", "kaya")
     publisher = Publisher(surfilog_db=db, **{f"{source}_db": absent for source in other_sources})
     assert publisher._get_target_year_month() == "2026-10"
     markdown = publisher.generate_markdown("2026-10")

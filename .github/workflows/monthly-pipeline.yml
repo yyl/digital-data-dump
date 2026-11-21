@@ -99,6 +99,7 @@ jobs:
           OVERCAST_PASSWORD: ${{ secrets.OVERCAST_PASSWORD }}
           SURFILOG_EMAIL: ${{ secrets.SURFILOG_EMAIL }}
           SURFILOG_PASSWORD: ${{ secrets.SURFILOG_PASSWORD }}
+          KAYA_TIMEZONE: ${{ vars.KAYA_TIMEZONE || 'America/Los_Angeles' }}
           STRONG_USER: ${{ secrets.STRONG_USER }}
           STRONG_PASS: ${{ secrets.STRONG_PASS }}
           STRONG_WEIGHT_UNIT: ${{ vars.STRONG_WEIGHT_UNIT || 'lb' }}

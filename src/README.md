@@ -27,6 +27,7 @@ Note: the tree below is shown from the repository root.
 │   ├── oura/
 │   ├── workflowy/
 │   ├── surfilog/
+│   ├── kaya/
 │   └── publish/
 ├── docs/
 ├── tests/
@@ -119,7 +120,7 @@ matching code and data snapshots; a date in the journal alone is insufficient.
 | Type | Sources | Ingestion Path |
 |------|---------|----------------|
 | API-backed | Readwise, Foursquare, Blog, Hardcover, GitHub, Oura, Schwab, Workflowy, Surfilog, Strong | `api_client.py` + `sync.py` |
-| File-backed | Letterboxd, Overcast, Apple Health | `importer.py` |
+| File-backed | Letterboxd, Overcast, Apple Health, Kaya | `importer.py` |
 
 Letterboxd is hybrid in practice: it uses RSS for incremental sync, plus CSV export seeding when the DB is empty.
 
@@ -911,6 +912,25 @@ and are populated from raw commits by `github-analyze`.
 
 Sync initializes only raw tables. `surfilog-analyze` creates and refreshes the
 derived `analysis` table and adds the median columns to older databases.
+
+#### Kaya (`kaya.db`)
+
+- `climbs` stores imported CSV records with all export fields and an ISO 8601
+  timestamp. `climb_id` is unique, and `local_date` is derived in
+  `KAYA_TIMEZONE` during import.
+- `analysis` stores one row per `year_month` with `climbing_days`, `sends`,
+  `attempts`, `climbs_missing_attempts`, `flashes`, `onsights`, nullable
+  integer `hardest_v_grade`, and a JSON `grade_counts` object keyed by uppercase
+  grade label. The empty grade key counts ungraded sends.
+
+The local ID hashes the UTC timestamp and the remaining CSV fields, with an
+occurrence number for identical rows in one export. Existing databases receive
+IDs in place when initialized. The importer validates the entire file before
+inserting new IDs in one transaction. Analysis rebuilds all months in a
+transaction using distinct local dates and successful ascent types. Numeric V
+grades are ranked by their integer value. Attempt totals sum nonnegative
+integers supplied by Kaya. A month with no usable counts stores a null total.
+`kaya-analyze` adds and backfills the attempt columns in older databases.
 
 #### Oura Ring (`oura.db`)
 

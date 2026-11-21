@@ -33,6 +33,8 @@ Usage:
     python main.py workflowy-analyze # Analyze monthly Workflowy node activity
     python main.py surfilog-sync     # Sync Surfilog sessions and individual waves
     python main.py surfilog-analyze  # Sync and analyze monthly surfing metrics
+    python main.py kaya-sync         # Import a Kaya bouldering export
+    python main.py kaya-analyze      # Import and analyze Kaya bouldering activity
     python main.py publish           # Publish monthly report to data repo
     python main.py publish --dry-run # Validate config without publishing
     python main.py publish --skip-sync-analysis # Publish from current analysis data
@@ -144,6 +146,9 @@ def cmd_init():
 
     from src.surfilog.database import SurfilogDatabase
     SurfilogDatabase().init_tables()
+
+    from src.kaya.database import KayaDatabase
+    KayaDatabase().init_tables()
     
     print("\nDone!")
 
@@ -260,6 +265,7 @@ def cmd_publish(dry_run: bool = False, skip_sync_analysis: bool = False, last_mo
             print(f"Skipping Oura: {e}\n")
 
         _run_optional_surfilog(cmd_surfilog_analyze)
+        cmd_kaya_analyze()
     else:
         print("=== Skipping Sync And Analysis ===")
         print("Publishing from current analysis data...\n")
@@ -319,6 +325,7 @@ def cmd_backfill():
         print(f"Skipping Oura: {e}\n")
     
     _run_optional_surfilog(cmd_surfilog_analyze)
+    cmd_kaya_analyze()
 
     print("\n=== Backfilling Data ===")
     print("Generating and committing data files...")
@@ -588,6 +595,7 @@ def cmd_analyze():
         print(f"  Error/skip: {e}")
 
     _run_optional_surfilog(cmd_surfilog_analyze)
+    cmd_kaya_analyze()
 
     print("\nAnalysis complete!")
 
@@ -868,6 +876,36 @@ def cmd_surfilog_analyze():
     )
 
 
+def cmd_kaya_sync(csv_path=None):
+    """Import an explicit or automatically discovered Kaya export."""
+    from src.kaya.importer import EXPORT_PATTERN, KayaImporter
+
+    csv_path = csv_path or KayaImporter.find_export()
+    if csv_path is None:
+        print(f"Skipping Kaya import: no {EXPORT_PATTERN} found in the files directory.")
+        return
+    count = KayaImporter().sync(csv_path)
+    print(f"Added {count:,} new Kaya climbs.")
+
+
+def cmd_kaya_analyze(csv_path=None):
+    """Refresh the Kaya export when available and rebuild monthly analysis."""
+    from src.kaya.analytics import KayaAnalytics
+    from src.kaya.database import KayaDatabase
+
+    cmd_kaya_sync(csv_path)
+    if not Config.KAYA_DATABASE_PATH.exists():
+        return
+    run_analysis(
+        sync_func=None,
+        db_cls=KayaDatabase,
+        analytics_cls=KayaAnalytics,
+        service_name="Kaya bouldering activity",
+        analysis_method="analyze_climbs",
+        db_filename="kaya.db",
+    )
+
+
 def cmd_sync():
     """Sync all services."""
     print("=== Syncing All Services ===\n")
@@ -967,6 +1005,7 @@ def cmd_sync():
         print(f"Skipping Workflowy: {e}\n")
 
     _run_optional_surfilog(cmd_surfilog_sync)
+    cmd_kaya_sync()
 
 
 def cmd_status():
@@ -1369,6 +1408,26 @@ def cmd_status():
         print(f"  Error: {error}")
 
 
+    print("\n--- Kaya ---")
+    try:
+        from src.kaya.database import KayaDatabase
+
+        db = KayaDatabase()
+        rows = []
+        if db.exists():
+            rows = db.fetch_rows(
+                "SELECT COUNT(*) AS climbs, MAX(local_date) AS latest_climb FROM climbs",
+                required_tables=("climbs",),
+            )
+        if rows and rows[0]["climbs"]:
+            print(f"  climbs: {rows[0]['climbs']:,}")
+            print(f"  latest climb: {rows[0]['latest_climb']}")
+        else:
+            print("  no climbs imported")
+    except Exception as error:
+        print(f"  Error: {error}")
+
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -1412,6 +1471,12 @@ def main():
     subparsers.add_parser("workflowy-analyze", help="Analyze monthly Workflowy node activity")
     subparsers.add_parser("surfilog-sync", help="Sync Surfilog sessions and individual waves")
     subparsers.add_parser("surfilog-analyze", help="Sync and analyze monthly surfing metrics")
+    kaya_sync_parser = subparsers.add_parser("kaya-sync", help="Import Kaya climbs from CSV")
+    kaya_analyze_parser = subparsers.add_parser(
+        "kaya-analyze", help="Import Kaya climbs and rebuild monthly bouldering metrics"
+    )
+    for kaya_parser in (kaya_sync_parser, kaya_analyze_parser):
+        kaya_parser.add_argument("csv_path", nargs="?", help="Path to a Kaya CSV export")
     subparsers.add_parser("status", help="Show sync status")
     subparsers.add_parser("backfill", help="Commit activity data files to configured repos")
     
@@ -1469,6 +1534,8 @@ def main():
         "workflowy-analyze": cmd_workflowy_analyze,
         "surfilog-sync": cmd_surfilog_sync,
         "surfilog-analyze": cmd_surfilog_analyze,
+        "kaya-sync": cmd_kaya_sync,
+        "kaya-analyze": cmd_kaya_analyze,
         "status": cmd_status,
     }
     
@@ -1482,6 +1549,8 @@ def main():
         cmd_backfill()
     elif args.command == "strong-sync":
         cmd_strong_sync(from_csv=args.csv)
+    elif args.command in ("kaya-sync", "kaya-analyze"):
+        commands[args.command](args.csv_path)
     elif args.command in commands:
         commands[args.command]()
     else:

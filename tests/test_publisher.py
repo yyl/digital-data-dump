@@ -59,6 +59,8 @@ class TestPublisher(unittest.TestCase):
         self.mock_oura_db = MagicMock(spec=BaseDatabase)
         self.mock_surfilog_db = MagicMock(spec=BaseDatabase)
         self.mock_surfilog_db.fetch_rows.return_value = []
+        self.mock_kaya_db = MagicMock(spec=BaseDatabase)
+        self.mock_kaya_db.fetch_rows.return_value = []
 
         # Initialize publisher with mocks
         self.publisher = Publisher(
@@ -73,6 +75,7 @@ class TestPublisher(unittest.TestCase):
             github_activity_db=self.mock_github_activity_db,
             oura_db=self.mock_oura_db,
             surfilog_db=self.mock_surfilog_db,
+            kaya_db=self.mock_kaya_db,
         )
 
     def test_get_readwise_analysis_success(self):
@@ -135,13 +138,13 @@ class TestPublisher(unittest.TestCase):
             'readwise': None, 'foursquare': None, 'letterboxd': '2024-12',
             'overcast': '2025-01', 'strong': '2025-12', 'apple_health': '2025-02',
             'blog': '2025-04', 'hardcover': '2025-03', 'github_activity': '2025-01',
-            'oura': '2025-01', 'surfilog': None,
+            'oura': '2025-01', 'surfilog': None, 'kaya': '2026-01',
         }
         for source, month in months.items():
             getattr(self, f'mock_{source}_db').fetch_rows.return_value = (
                 [{'year_month': month}] if month else []
             )
-        self.assertEqual(self.publisher._get_target_year_month(), '2025-12')
+        self.assertEqual(self.publisher._get_target_year_month(), '2026-01')
 
     def test_last_month_selects_previous_calendar_month(self):
         cases = [
