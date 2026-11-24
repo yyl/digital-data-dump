@@ -1,9 +1,11 @@
 """Publisher module for generating and committing monthly summaries."""
 
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import date, timedelta
+from functools import partial
 import json
 from pathlib import Path
-import logging
 from typing import Dict, Any, Optional, List
 
 from ..config import Config
@@ -23,17 +25,22 @@ from ..github.database import GitHubDatabase
 from ..github.models import LINE_CHANGE_METRICS, VISIBILITY_METRICS
 from ..github.analytics import hourly_activity
 from ..oura.database import OuraDatabase
+from ..oura.reporting import monthly_scores, report_months as oura_report_months
 from ..surfilog.database import SurfilogDatabase
 from ..surfilog.models import METRICS as SURFILOG_METRICS
 from ..surfilog.models import WAVE_MEDIAN_METRICS
 from ..kaya.database import KayaDatabase
 from .github_client import GitHubClient
-from .markdown_generator import MarkdownGenerator
+from .markdown_generator import MarkdownGenerator, ReportSection
 from .data_generator import DataGenerator
 from .activity_chart import render_commit_hours
 from .travel_map import render_travel_map, valid_map_places
 
-logger = logging.getLogger(__name__)
+@dataclass(frozen=True)
+class ReportSource:
+    section: ReportSection
+    available_months: Callable[[], Iterable[str]]
+    read: Callable[[str], dict | None]
 
 
 class Publisher:
@@ -92,7 +99,6 @@ class Publisher:
             foursquare_db=self.foursquare_db,
             letterboxd_db=self.letterboxd_db,
             overcast_db=self.overcast_db,
-            strong_db=self.strong_db,
             apple_health_db=self.apple_health_db,
             blog_db=self.blog_db,
             hardcover_db=self.hardcover_db,
@@ -180,19 +186,6 @@ class Publisher:
             (year_month,),
         )
     
-    def _get_strong_analysis(self, year_month: str) -> Optional[Dict[str, Any]]:
-        """Get Strong analysis for a specific month."""
-        query = """
-        SELECT year_month, year, month, workouts, total_minutes, unique_exercises, total_sets
-        FROM analysis
-        WHERE year_month = ?
-        """
-        return self._fetch_analysis(
-            self.strong_db,
-            query,
-            (year_month,),
-        )
-
     def _get_apple_health_analysis(self, year_month: str) -> Optional[Dict[str, Any]]:
         """Get Apple Health analysis for a specific month."""
         query = """
@@ -301,36 +294,8 @@ class Publisher:
         )
 
     def _get_oura_analysis(self, year_month: str) -> Optional[Dict[str, Any]]:
-        """Get Oura sleep & readiness analysis for a specific month.
-
-        Pivots the normalized (year_month, source_table, metric) rows into a
-        flat dict with keys: median_sleep_score, avg_sleep_score,
-        median_readiness_score, avg_readiness_score.
-        """
-        query = """
-        SELECT source_table, metric, median_value, avg_value
-        FROM analysis
-        WHERE year_month = ?
-          AND source_table IN ('daily_sleep', 'daily_readiness')
-          AND metric = 'score'
-        """
-        rows = self._fetch_rows(
-            self.oura_db,
-            query,
-            (year_month,),
-        )
-        if not rows:
-            return None
-
-        result: Dict[str, Any] = {'year_month': year_month}
-        for row in rows:
-            if row['source_table'] == 'daily_sleep':
-                result['median_sleep_score'] = row['median_value']
-                result['avg_sleep_score'] = round(row['avg_value'], 2) if row['avg_value'] is not None else None
-            elif row['source_table'] == 'daily_readiness':
-                result['median_readiness_score'] = row['median_value']
-                result['avg_readiness_score'] = round(row['avg_value'], 2) if row['avg_value'] is not None else None
-        return result if len(result) > 1 else None
+        scores = monthly_scores(self.oura_db, year_month)
+        return scores[0] if scores else None
 
     def _get_readwise_articles(self, year_month: str) -> List[Dict[str, Any]]:
         """Get archived Readwise articles for a specific month."""
@@ -582,29 +547,30 @@ class Publisher:
             required_tables=('posts', 'post_tags'),
         )
     
-    def _get_target_year_month(self, last_month: bool = False) -> Optional[str]:
-        """Choose the latest available month or the previous calendar month."""
-        query = "SELECT DISTINCT year_month FROM analysis"
-        all_months = set()
+    def _analysis_months(self, db) -> list[str]:
+        rows = self._fetch_rows(db, "SELECT DISTINCT year_month FROM analysis", ())
+        return [row["year_month"] for row in rows if row.get("year_month")]
 
-        for db in [
-            self.readwise_db,
-            self.foursquare_db,
-            self.letterboxd_db,
-            self.overcast_db,
-            self.strong_db,
-            self.apple_health_db,
-            self.blog_db,
-            self.hardcover_db,
-            self.github_activity_db,
-            self.oura_db,
-            self.surfilog_db,
-            self.kaya_db,
-        ]:
-            rows = self._fetch_rows(db, query, ())
-            for row in rows:
-                if row and row.get("year_month"):
-                    all_months.add(row["year_month"])
+    def report_sources(self) -> tuple[ReportSource, ...]:
+        sections = {section.key: section for section in self.markdown_generator.report_sections()}
+        return (
+            ReportSource(sections['readwise'], partial(self._analysis_months, self.readwise_db), self._readwise_section),
+            ReportSource(sections['hardcover'], partial(self._analysis_months, self.hardcover_db), self._hardcover_section),
+            ReportSource(sections['overcast'], partial(self._analysis_months, self.overcast_db), self._overcast_section),
+            ReportSource(sections['blog'], partial(self._analysis_months, self.blog_db), self._blog_section),
+            ReportSource(sections['github'], partial(self._analysis_months, self.github_activity_db), self._github_section),
+            ReportSource(sections['apple_health'], partial(self._analysis_months, self.apple_health_db), self._apple_health_section),
+            ReportSource(sections['surfilog'], partial(self._analysis_months, self.surfilog_db), self._surfilog_section),
+            ReportSource(sections['kaya'], partial(self._analysis_months, self.kaya_db), self._kaya_section),
+            ReportSource(sections['strong'], self._strong_report_months, self._strong_section),
+            ReportSource(sections['foursquare'], partial(self._analysis_months, self.foursquare_db), self._foursquare_section),
+            ReportSource(sections['letterboxd'], partial(self._analysis_months, self.letterboxd_db), self._letterboxd_section),
+            ReportSource(sections['oura'], partial(oura_report_months, self.oura_db), self._oura_section),
+        )
+
+    def _get_target_year_month(self, last_month: bool = False) -> Optional[str]:
+        """Choose the latest available report month or the previous calendar month."""
+        all_months = {month for source in self.report_sources() for month in source.available_months()}
 
         if not all_months:
             return None
@@ -649,330 +615,329 @@ class Publisher:
         today = today or date.today()
         return f"{today.year - 1:04d}-{today.month:02d}"
     
-    def publish(self, last_month: bool = False) -> Dict[str, Any]:
-        """Generate and publish the monthly summary blog post.
-        
-        Args:
-            last_month: If True, generate the summary for the previous calendar month.
-            
-        Returns:
-            Dictionary with commit information.
-        """
-        # Get target year_month
+    def _data_repo_client(self) -> GitHubClient:
+        Config.validate_data_repo_github()
+        return self._build_github_client(
+            repo_owner=Config.DATA_REPO_OWNER,
+            repo_name=Config.DATA_REPO_NAME,
+            target_branch=Config.DATA_GITHUB_TARGET_BRANCH,
+        )
+
+    def _prepare_draft(self, last_month: bool) -> tuple[dict[str, str | bytes], str]:
         year_month = self._get_target_year_month(last_month)
         if not year_month:
-            raise ValueError("No analysis data found. Run 'analyze' first.")
-        
+            raise ValueError("No report data found. Run 'analyze' first.")
+
         year, month = year_month.split('-')
-        logger.info(f"Generating report for {year_month}")
-        
-        # Generate markdown using shared method
-        markdown_content = self.generate_markdown(year_month)
-        
-        Config.validate_data_repo_github()
-        data_repo_client = self._build_github_client(
-            repo_owner=Config.DATA_REPO_OWNER,
-            repo_name=Config.DATA_REPO_NAME,
-            target_branch=Config.DATA_GITHUB_TARGET_BRANCH,
-        )
-
-        # Commit report post to the private data repo.
-        file_path = f"{Config.DATA_REPO_POSTS_DIR}/wrap-up-{month}-{year}.md"
-        commit_message = f"feat: Add monthly report draft for {month}/{year}"
-        
-        result = data_repo_client.create_or_update_files(
-            files={
-                file_path: markdown_content,
-                **{f"{Config.DATA_REPO_POSTS_DIR}/{path}": content
-                   for path, content in self.report_assets.items()},
-            },
-            commit_message=commit_message
-        )
-        
-        logger.info(f"Published report post to data repo at {result['url']}")
-        return result
-    
-    def backfill(self) -> Dict[str, Any]:
-        """Generate and commit Hugo data files from all analysis data.
-        
-        Returns:
-            Dictionary with commit information for both publishing targets.
-        """
-        full_history_files = self.data_generator.generate_data_files()
-
-        if not full_history_files:
-            raise ValueError("No analysis data found. Run 'analyze' first.")
-
-        logger.info(f"Generated {len(full_history_files)} full-history data files")
-
-        Config.validate_data_repo_github()
-        data_repo_client = self._build_github_client(
-            repo_owner=Config.DATA_REPO_OWNER,
-            repo_name=Config.DATA_REPO_NAME,
-            target_branch=Config.DATA_GITHUB_TARGET_BRANCH,
-        )
-        data_repo_result = data_repo_client.create_or_update_files(
-            files=full_history_files,
-            commit_message="data: Update activity data files",
-        )
-
-        blog_start_year_month = self._one_year_lookback_year_month()
-        blog_data_files = self.data_generator.generate_data_files(
-            min_year_month=blog_start_year_month,
-        )
-        logger.info(
-            "Generated %s blog data files starting at %s",
-            len(blog_data_files),
-            blog_start_year_month,
-        )
-
-        self._ensure_github_client()
-        blog_result = self.github_client.create_or_update_files(
-            files=blog_data_files,
-            commit_message=f"data: Update activity data files since {blog_start_year_month}",
-        )
-
-        logger.info(f"Backfilled full-history data to {data_repo_result['url']}")
-        logger.info(f"Backfilled blog data to {blog_result['url']}")
+        markdown = self.generate_markdown(year_month)
+        directory = Config.DATA_REPO_POSTS_DIR
         return {
-            "data_repo": data_repo_result,
-            "blog_repo": blog_result,
-            "blog_start_year_month": blog_start_year_month,
-        }
-    
+            f"{directory}/wrap-up-{month}-{year}.md": markdown,
+            **{f"{directory}/{path}": content for path, content in self.report_assets.items()},
+        }, f"feat: Add monthly report draft for {month}/{year}"
+
+    def publish(self, last_month: bool = False) -> Dict[str, Any]:
+        """Render and deliver the monthly draft and its assets."""
+        files, message = self._prepare_draft(last_month)
+        return self._data_repo_client().create_or_update_files(files=files, commit_message=message)
+
+    def _prepare_activity(self) -> tuple[dict[str, str], dict[str, str], str]:
+        activity = self.data_generator.load_activity_data()
+        if not activity:
+            raise ValueError("No activity analysis available. Run 'analyze' first.")
+        cutoff = self._one_year_lookback_year_month()
+        full_history = self.data_generator.render_data_files(activity)
+        blog = self.data_generator.render_data_files(activity, min_year_month=cutoff)
+        return full_history, blog, cutoff
+
+    def _deliver_activity(self, data_repo_client: GitHubClient, full_history: dict[str, str],
+                          blog_files: dict[str, str], cutoff: str) -> Dict[str, Any]:
+        data_result = data_repo_client.create_or_update_files(
+            files=full_history, commit_message="data: Update activity data files",
+        )
+        blog_result = self.github_client.create_or_update_files(
+            files=blog_files, commit_message=f"data: Update activity data files since {cutoff}",
+        )
+        return {"data_repo": data_result, "blog_repo": blog_result, "blog_start_year_month": cutoff}
+
+    def backfill(self) -> Dict[str, Any]:
+        """Render both activity windows before committing either of them."""
+        activity = self._prepare_activity()
+        data_repo_client = self._data_repo_client()
+        self._ensure_github_client()
+        return self._deliver_activity(data_repo_client, *activity)
+
+    def publish_pipeline(self, last_month: bool = False) -> Dict[str, Any]:
+        """Render all pipeline artifacts before starting delivery."""
+        files, message = self._prepare_draft(last_month)
+        activity = self._prepare_activity()
+        data_repo_client = self._data_repo_client()
+        self._ensure_github_client()
+        draft = data_repo_client.create_or_update_files(files=files, commit_message=message)
+        return {"draft": draft, **self._deliver_activity(data_repo_client, *activity)}
+
     def generate_markdown(self, year_month: Optional[str] = None, last_month: bool = False) -> str:
-        """Generate markdown content for a monthly summary.
-        
-        Args:
-            year_month: Period to generate for (YYYY-MM format). Defaults to latest.
-            last_month: If True and year_month not provided, use the previous calendar month.
-            
-        Returns:
-            Generated markdown content as string.
-        """
         self.report_assets = {}
         if not year_month:
             year_month = self._get_target_year_month(last_month)
-        
         if not year_month:
-            raise ValueError("No analysis data found. Run 'analyze' first.")
-        
+            raise ValueError("No report data found. Run 'analyze' first.")
+
         year, month = year_month.split('-')
-        
-        # Prepare data for markdown generation
-        data = {
-            'year': year,
-            'month': month,
-        }
-        
-        # Get Readwise analysis
+        data = {'year': year, 'month': month}
+        sources = self.report_sources()
+        for source in sources:
+            section_data = source.read(year_month)
+            if section_data:
+                data[source.section.key] = section_data
+        return self.markdown_generator.generate_monthly_summary(
+            data, sections=(source.section for source in sources),
+        )
+
+    def _strong_report_months(self) -> list[str]:
+        return StrongAnalytics(db=self.strong_db).get_weightlifting_months()
+
+    def _readwise_section(self, year_month: str) -> dict | None:
         readwise = self._get_readwise_analysis(year_month)
-        if readwise:
-            readwise_comparisons = compute_comparisons(
-                current_stats=readwise,
-                historical_getter=self._get_readwise_analysis,
-                year_month=year_month,
-                metrics=['articles', 'words', 'reading_time_mins']
-            )
-            data['readwise'] = {
-                'articles': readwise['articles'],
-                'words': readwise['words'],
-                'reading_time_mins': readwise['reading_time_mins'],
-                'max_words_per_article': readwise['max_words_per_article'],
-                'median_words_per_article': readwise['median_words_per_article'],
-                'min_words_per_article': readwise['min_words_per_article'],
-                'article_list': self._get_readwise_articles(year_month),
-                'source_time_analysis': self._get_source_time_analysis(self.readwise_db, year_month),
-                'new_sources': self._get_new_reading_sources(year_month),
-                'highlight_groups': self._group_readwise_highlights(
-                    self._get_readwise_highlights(year_month)
-                ),
-                'comparisons': readwise_comparisons
-            }
-        
-        # Get Foursquare analysis
+        if not readwise:
+            return None
+
+        readwise_comparisons = compute_comparisons(
+            current_stats=readwise,
+            historical_getter=self._get_readwise_analysis,
+            year_month=year_month,
+            metrics=['articles', 'words', 'reading_time_mins']
+        )
+        section = {
+            'articles': readwise['articles'],
+            'words': readwise['words'],
+            'reading_time_mins': readwise['reading_time_mins'],
+            'max_words_per_article': readwise['max_words_per_article'],
+            'median_words_per_article': readwise['median_words_per_article'],
+            'min_words_per_article': readwise['min_words_per_article'],
+            'article_list': self._get_readwise_articles(year_month),
+            'source_time_analysis': self._get_source_time_analysis(self.readwise_db, year_month),
+            'new_sources': self._get_new_reading_sources(year_month),
+            'highlight_groups': self._group_readwise_highlights(
+                self._get_readwise_highlights(year_month)
+            ),
+            'comparisons': readwise_comparisons
+        }
+        return section
+
+    def _foursquare_section(self, year_month: str) -> dict | None:
         foursquare = self._get_foursquare_analysis(year_month)
-        if foursquare:
-            foursquare_comparisons = compute_comparisons(
-                current_stats=foursquare,
-                historical_getter=self._get_foursquare_analysis,
-                year_month=year_month,
-                metrics=['checkins', 'unique_places']
-            )
-            data['foursquare'] = {
-                'checkins': foursquare['checkins'],
-                'unique_places': foursquare['unique_places'],
-                'places': self._get_foursquare_places(year_month),
-                'new_places': self._get_new_places(year_month),
-                'comparisons': foursquare_comparisons
-            }
-            places = data['foursquare']['places']
-            if places:
-                mapped = valid_map_places(places)
-                image = render_travel_map(mapped)
-                if image is not None:
-                    data['foursquare']['map_image'] = self._add_report_asset(
-                        year_month, 'travel-map.png', image
-                    )
-                data['foursquare']['map_coverage'] = (
-                    f"Mapped {len(mapped)} of {len(places)} visited places. "
-                    "Marker size reflects monthly visits."
-                    if mapped else "Map unavailable because the visited places have no valid coordinates."
+        if not foursquare:
+            return None
+
+        foursquare_comparisons = compute_comparisons(
+            current_stats=foursquare,
+            historical_getter=self._get_foursquare_analysis,
+            year_month=year_month,
+            metrics=['checkins', 'unique_places']
+        )
+        section = {
+            'checkins': foursquare['checkins'],
+            'unique_places': foursquare['unique_places'],
+            'places': self._get_foursquare_places(year_month),
+            'new_places': self._get_new_places(year_month),
+            'comparisons': foursquare_comparisons
+        }
+        places = section['places']
+        if places:
+            mapped = valid_map_places(places)
+            image = render_travel_map(mapped)
+            if image is not None:
+                section['map_image'] = self._add_report_asset(
+                    year_month, 'travel-map.png', image
                 )
-        
-        # Get Letterboxd analysis
+            section['map_coverage'] = (
+                f"Mapped {len(mapped)} of {len(places)} visited places. "
+                "Marker size reflects monthly visits."
+                if mapped else "Map unavailable because the visited places have no valid coordinates."
+            )
+        return section
+
+    def _letterboxd_section(self, year_month: str) -> dict | None:
         letterboxd = self._get_letterboxd_analysis(year_month)
-        if letterboxd:
-            letterboxd_comparisons = compute_comparisons(
-                current_stats=letterboxd,
-                historical_getter=self._get_letterboxd_analysis,
-                year_month=year_month,
-                metrics=['movies_watched', 'avg_rating']
-            )
-            data['letterboxd'] = {
-                'movies_watched': letterboxd['movies_watched'],
-                'avg_rating': letterboxd['avg_rating'],
-                'min_rating': letterboxd['min_rating'],
-                'max_rating': letterboxd['max_rating'],
-                'avg_years_since_release': letterboxd['avg_years_since_release'],
-                'movies': self._get_movies_watched(year_month),
-                'comparisons': letterboxd_comparisons
-            }
-        
-        # Get Overcast analysis
+        if not letterboxd:
+            return None
+
+        letterboxd_comparisons = compute_comparisons(
+            current_stats=letterboxd,
+            historical_getter=self._get_letterboxd_analysis,
+            year_month=year_month,
+            metrics=['movies_watched', 'avg_rating']
+        )
+        section = {
+            'movies_watched': letterboxd['movies_watched'],
+            'avg_rating': letterboxd['avg_rating'],
+            'min_rating': letterboxd['min_rating'],
+            'max_rating': letterboxd['max_rating'],
+            'avg_years_since_release': letterboxd['avg_years_since_release'],
+            'movies': self._get_movies_watched(year_month),
+            'comparisons': letterboxd_comparisons
+        }
+        return section
+
+    def _overcast_section(self, year_month: str) -> dict | None:
         overcast = self._get_overcast_analysis(year_month)
-        if overcast:
-            overcast_comparisons = compute_comparisons(
-                current_stats=overcast,
-                historical_getter=self._get_overcast_analysis,
-                year_month=year_month,
-                metrics=['episodes_played', 'minutes_listened']
-            )
-            data['overcast'] = {
-                'feeds_added': overcast['feeds_added'],
-                'feeds_removed': overcast['feeds_removed'],
-                'episodes_played': overcast['episodes_played'],
-                'minutes_listened': overcast.get('minutes_listened', 0),
-                'episodes': self._get_podcast_episodes(year_month),
-                'source_time_analysis': self._get_source_time_analysis(self.overcast_db, year_month),
-                'new_feeds': self._get_new_podcast_feeds(year_month),
-                'comparisons': overcast_comparisons
-            }
-        
-        # Get Apple Health analysis
+        if not overcast:
+            return None
+
+        overcast_comparisons = compute_comparisons(
+            current_stats=overcast,
+            historical_getter=self._get_overcast_analysis,
+            year_month=year_month,
+            metrics=['episodes_played', 'minutes_listened']
+        )
+        section = {
+            'feeds_added': overcast['feeds_added'],
+            'feeds_removed': overcast['feeds_removed'],
+            'episodes_played': overcast['episodes_played'],
+            'minutes_listened': overcast.get('minutes_listened', 0),
+            'episodes': self._get_podcast_episodes(year_month),
+            'source_time_analysis': self._get_source_time_analysis(self.overcast_db, year_month),
+            'new_feeds': self._get_new_podcast_feeds(year_month),
+            'comparisons': overcast_comparisons
+        }
+        return section
+
+    def _apple_health_section(self, year_month: str) -> dict | None:
         apple_health = self._get_apple_health_analysis(year_month)
-        if apple_health:
-            apple_health_comparisons = compute_comparisons(
-                current_stats=apple_health,
-                historical_getter=self._get_apple_health_analysis,
-                year_month=year_month,
-                metrics=['workouts', 'total_duration_seconds', 'total_calories']
-            )
-            data['apple_health'] = {
-                'workouts': apple_health['workouts'],
-                'total_duration_seconds': apple_health['total_duration_seconds'],
-                'total_calories': apple_health['total_calories'],
-                'activity_breakdown': self._get_apple_health_activity_breakdown(year_month),
-                'comparisons': apple_health_comparisons
-            }
+        if not apple_health:
+            return None
 
-        strong = StrongAnalytics(db=self.strong_db).get_weightlifting_summary(year_month)
-        if strong:
-            data['strong'] = strong
+        apple_health_comparisons = compute_comparisons(
+            current_stats=apple_health,
+            historical_getter=self._get_apple_health_analysis,
+            year_month=year_month,
+            metrics=['workouts', 'total_duration_seconds', 'total_calories']
+        )
+        section = {
+            'workouts': apple_health['workouts'],
+            'total_duration_seconds': apple_health['total_duration_seconds'],
+            'total_calories': apple_health['total_calories'],
+            'activity_breakdown': self._get_apple_health_activity_breakdown(year_month),
+            'comparisons': apple_health_comparisons
+        }
+        return section
 
+    def _strong_section(self, year_month: str) -> dict | None:
+        return StrongAnalytics(db=self.strong_db).get_weightlifting_summary(year_month)
+
+    def _blog_section(self, year_month: str) -> dict | None:
         blog = self._get_blog_analysis(year_month)
-        if blog:
-            blog_comparisons = compute_comparisons(
-                current_stats=blog,
-                historical_getter=self._get_blog_analysis,
-                year_month=year_month,
-                metrics=['posts', 'total_words', 'unique_tags']
-            )
-            data['blog'] = {
-                'posts': blog['posts'],
-                'total_words': blog['total_words'],
-                'unique_tags': blog['unique_tags'],
-                'top_tags': self._get_blog_top_tags(year_month),
-                'comparisons': blog_comparisons,
-            }
-        
-        # Get Hardcover analysis
+        if not blog:
+            return None
+
+        blog_comparisons = compute_comparisons(
+            current_stats=blog,
+            historical_getter=self._get_blog_analysis,
+            year_month=year_month,
+            metrics=['posts', 'total_words', 'unique_tags']
+        )
+        section = {
+            'posts': blog['posts'],
+            'total_words': blog['total_words'],
+            'unique_tags': blog['unique_tags'],
+            'top_tags': self._get_blog_top_tags(year_month),
+            'comparisons': blog_comparisons,
+        }
+        return section
+
+    def _hardcover_section(self, year_month: str) -> dict | None:
         hardcover = self._get_hardcover_analysis(year_month)
-        if hardcover:
-            hardcover_comparisons = compute_comparisons(
-                current_stats=hardcover,
-                historical_getter=self._get_hardcover_analysis,
-                year_month=year_month,
-                metrics=['books_finished', 'avg_rating']
-            )
-            data['hardcover'] = {
-                'books_finished': hardcover['books_finished'],
-                'avg_rating': hardcover['avg_rating'],
-                'comparisons': hardcover_comparisons
-            }
-        
-        # Get GitHub analysis
+        if not hardcover:
+            return None
+
+        hardcover_comparisons = compute_comparisons(
+            current_stats=hardcover,
+            historical_getter=self._get_hardcover_analysis,
+            year_month=year_month,
+            metrics=['books_finished', 'avg_rating']
+        )
+        section = {
+            'books_finished': hardcover['books_finished'],
+            'avg_rating': hardcover['avg_rating'],
+            'comparisons': hardcover_comparisons
+        }
+        return section
+
+    def _github_section(self, year_month: str) -> dict | None:
         github = self._get_github_analysis(year_month)
-        if github:
-            github_comparisons = compute_comparisons(
-                current_stats=github,
-                historical_getter=self._get_github_analysis,
-                year_month=year_month,
-                metrics=['commits', 'repos_touched', *VISIBILITY_METRICS, *LINE_CHANGE_METRICS]
-            )
-            data['github'] = {
-                'commits': github['commits'],
-                'repos_touched': github['repos_touched'],
-                **{metric: github.get(metric) for metric in (*VISIBILITY_METRICS, *LINE_CHANGE_METRICS)},
-                'commit_groups': self._group_commits_by_repo(
-                    self._get_github_commits(year_month)
-                ),
-                'new_repos': self._get_new_github_repos(year_month),
-                'comparisons': github_comparisons
-            }
-            hours = self._get_github_hourly_activity(year_month)
-            if hours:
-                data['github']['activity_chart'] = self._add_report_asset(
-                    year_month, 'commit-hours.svg', render_commit_hours(hours)
-                )
+        if not github:
+            return None
 
+        github_comparisons = compute_comparisons(
+            current_stats=github,
+            historical_getter=self._get_github_analysis,
+            year_month=year_month,
+            metrics=['commits', 'repos_touched', *VISIBILITY_METRICS, *LINE_CHANGE_METRICS]
+        )
+        section = {
+            'commits': github['commits'],
+            'repos_touched': github['repos_touched'],
+            **{metric: github.get(metric) for metric in (*VISIBILITY_METRICS, *LINE_CHANGE_METRICS)},
+            'commit_groups': self._group_commits_by_repo(
+                self._get_github_commits(year_month)
+            ),
+            'new_repos': self._get_new_github_repos(year_month),
+            'comparisons': github_comparisons
+        }
+        hours = self._get_github_hourly_activity(year_month)
+        if hours:
+            section['activity_chart'] = self._add_report_asset(
+                year_month, 'commit-hours.svg', render_commit_hours(hours)
+            )
+        return section
+
+    def _surfilog_section(self, year_month: str) -> dict | None:
         surfing = self._get_surfilog_analysis(year_month)
-        if surfing:
-            metrics = [*SURFILOG_METRICS, *WAVE_MEDIAN_METRICS]
-            data['surfilog'] = {
-                **{metric: surfing.get(metric) for metric in metrics},
-                'comparisons': compute_comparisons(
-                    surfing, self._get_surfilog_analysis, year_month, metrics
-                ),
-            }
+        if not surfing:
+            return None
 
+        metrics = [*SURFILOG_METRICS, *WAVE_MEDIAN_METRICS]
+        section = {
+            **{metric: surfing.get(metric) for metric in metrics},
+            'comparisons': compute_comparisons(
+                surfing, self._get_surfilog_analysis, year_month, metrics
+            ),
+        }
+        return section
+
+    def _kaya_section(self, year_month: str) -> dict | None:
         bouldering = self._get_kaya_analysis(year_month)
-        if bouldering:
-            bouldering['grade_counts'] = json.loads(bouldering['grade_counts'])
-            bouldering['comparisons'] = compute_comparisons(
-                bouldering, self._get_kaya_analysis, year_month, ['climbing_days', 'sends']
-            )
-            data['kaya'] = bouldering
+        if not bouldering:
+            return None
 
-        # Get Oura analysis
+        bouldering['grade_counts'] = json.loads(bouldering['grade_counts'])
+        bouldering['comparisons'] = compute_comparisons(
+            bouldering, self._get_kaya_analysis, year_month, ['climbing_days', 'sends']
+        )
+        section = bouldering
+        return section
+
+    def _oura_section(self, year_month: str) -> dict | None:
         oura = self._get_oura_analysis(year_month)
-        if oura:
-            oura_comparisons = compute_comparisons(
-                current_stats=oura,
-                historical_getter=self._get_oura_analysis,
-                year_month=year_month,
-                metrics=['median_sleep_score', 'avg_sleep_score',
-                         'median_readiness_score', 'avg_readiness_score']
-            )
-            data['oura'] = {
-                'median_sleep_score': oura.get('median_sleep_score'),
-                'avg_sleep_score': oura.get('avg_sleep_score'),
-                'median_readiness_score': oura.get('median_readiness_score'),
-                'avg_readiness_score': oura.get('avg_readiness_score'),
-                'comparisons': oura_comparisons
-            }
+        if not oura:
+            return None
 
-        return self.markdown_generator.generate_monthly_summary(data)
+        oura_comparisons = compute_comparisons(
+            current_stats=oura,
+            historical_getter=self._get_oura_analysis,
+            year_month=year_month,
+            metrics=['median_sleep_score', 'avg_sleep_score',
+                     'median_readiness_score', 'avg_readiness_score']
+        )
+        section = {
+            'median_sleep_score': oura.get('median_sleep_score'),
+            'avg_sleep_score': oura.get('avg_sleep_score'),
+            'median_readiness_score': oura.get('median_readiness_score'),
+            'avg_readiness_score': oura.get('avg_readiness_score'),
+            'comparisons': oura_comparisons
+        }
+        return section
 
     def _group_readwise_highlights(self, highlights: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Group Readwise highlights by article or book title."""

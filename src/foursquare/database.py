@@ -55,19 +55,23 @@ class FoursquareDatabase(BaseDatabase):
     def get_last_pulled_timestamp(self, foursquare_user_id: str) -> int:
         """Get last pulled timestamp for a user."""
         user = self.get_user(foursquare_user_id)
-        return user["last_pulled_timestamp"] if user else 0
+        return (user["last_pulled_timestamp"] or 0) if user else 0
     
-    def upsert_user(self, foursquare_user_id: str, last_pulled_timestamp: int = 0) -> None:
-        """Insert or update user."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO users (foursquare_user_id, last_pulled_timestamp, last_updated_at)
-                VALUES (?, ?, ?)
-                ON CONFLICT(foursquare_user_id) DO UPDATE SET
-                    last_pulled_timestamp = excluded.last_pulled_timestamp,
-                    last_updated_at = excluded.last_updated_at
-            """, (foursquare_user_id, last_pulled_timestamp, int(time.time())))
+    def upsert_user(self, foursquare_user_id: str, last_pulled_timestamp: int = 0,
+                    conn: Optional[sqlite3.Connection] = None) -> None:
+        """Ensure the user exists and advance its cursor monotonically."""
+        if conn is None:
+            with self.get_connection() as conn:
+                self.upsert_user(foursquare_user_id, last_pulled_timestamp, conn)
+            return
+        conn.execute("""
+            INSERT INTO users (foursquare_user_id, last_pulled_timestamp, last_updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(foursquare_user_id) DO UPDATE SET
+                last_pulled_timestamp = excluded.last_pulled_timestamp,
+                last_updated_at = excluded.last_updated_at
+            WHERE excluded.last_pulled_timestamp > COALESCE(users.last_pulled_timestamp, 0)
+        """, (foursquare_user_id, last_pulled_timestamp, int(time.time())))
     
     # ==========================================================================
     # Place Operations

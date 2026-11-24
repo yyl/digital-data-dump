@@ -82,7 +82,8 @@ def test_reports_and_exports_skip_unready_sources(readers, source, state):
         initialize_raw(db)
     assert publisher._get_target_year_month() is None
     assert '## ' not in publisher.generate_markdown('2026-09')
-    assert export_source(generator, source) == []
+    if source != 'strong':
+        assert export_source(generator, source) == []
 
 
 @pytest.mark.parametrize('source', SOURCES)
@@ -91,9 +92,10 @@ def test_unreadable_source_blocks_reports_month_selection_and_exports(readers, s
     db = getattr(publisher, f'{source}_db')
     with open(db.db_path, 'wb') as stream:
         stream.write(b'not a SQLite database')
-    for operation in [publisher._get_target_year_month,
-                      lambda: publisher.generate_markdown('2026-09'),
-                      lambda: export_source(generator, source)]:
+    operations = [publisher._get_target_year_month, lambda: publisher.generate_markdown('2026-09')]
+    if source != 'strong':
+        operations.append(lambda: export_source(generator, source))
+    for operation in operations:
         with pytest.raises(DatabaseReadError, match=f'{db.source_name}: file is not a SQLite database'):
             operation()
 
@@ -107,9 +109,10 @@ def test_partial_source_schema_is_visible_in_all_read_paths(readers, source):
     with db.get_connection() as conn:
         conn.execute('CREATE TABLE analysis (year_month TEXT)')
         conn.execute(f'DROP TABLE {sorted(db.raw_table_names)[-1]}')
-    for operation in [publisher._get_target_year_month,
-                      lambda: publisher.generate_markdown('2026-09'),
-                      lambda: export_source(generator, source)]:
+    operations = [publisher._get_target_year_month, lambda: publisher.generate_markdown('2026-09')]
+    if source != 'strong':
+        operations.append(lambda: export_source(generator, source))
+    for operation in operations:
         with pytest.raises(DatabaseReadError, match=f'{db.source_name}: incomplete source schema'):
             operation()
 

@@ -48,9 +48,10 @@ uv run main.py <command>
 |---------|-------------|
 | `init` | Initialize all databases |
 | `sync` | Sync all supported sources |
-| `analyze` | Recompute monthly analysis for all supported sources |
+| `analyze` | Sync configured sources and recompute monthly analysis, or use `--local` to analyze existing data |
 | `publish` | Generate and publish a draft monthly report |
 | `backfill` | Refresh analysis and regenerate blog activity YAML files |
+| `pipeline` | Refresh the reporting sources once and publish the draft and activity YAML files |
 | `status` | Show current sync status |
 | `workflowy-sync` | Sync a full Workflowy node export into the local mirror |
 | `workflowy-analyze` | Sync Workflowy and recompute monthly nodes added, modified, and removed |
@@ -63,7 +64,7 @@ uv run main.py <command>
 | `apple-health-sync` | Import local DDU Apple Health JSON archives, preserving existing history |
 | `apple-health-analyze` | Import Apple Health JSON archives and recompute monthly workout metrics |
 | `{source}-sync` | Sync one source |
-| `{source}-analyze` | Analyze one source |
+| `{source}-analyze` | Sync and analyze one source, or use `--local` to analyze existing data |
 
 ## Common Workflows
 
@@ -76,7 +77,7 @@ uv run main.py sync
 ### Recompute Monthly Analysis
 
 ```bash
-uv run main.py analyze
+uv run main.py analyze --local
 ```
 
 ### Preview the Monthly Report Locally
@@ -98,7 +99,7 @@ Useful publish flags:
 
 - `--dry-run`: render the report locally without publishing
 - `--skip-sync-analysis`: publish from existing analysis data
-- `--last-month`: publish the previous calendar month, requiring analysis data for that month
+- `--last-month`: publish the previous calendar month when report data is available for it
 
 Report previews and activity exports read existing databases in read-only mode.
 Missing or uninitialized sources, and sources whose analysis has not run, are
@@ -112,6 +113,9 @@ uv run main.py backfill
 ```
 
 `backfill` refreshes source analysis, commits full-history activity files to the data repo, and commits a blog copy limited to the rolling one-year lookback window to the configured blog repo.
+
+Use `backfill --skip-sync-analysis` or `pipeline --skip-sync-analysis` to retry
+delivery from existing analysis.
 
 ## Required Publishing Config
 
@@ -138,7 +142,7 @@ Optional:
 
 This repo includes a monthly GitHub Actions workflow so the pipeline can run automatically or on demand.
 
-- Scheduled run: the 1st of each month at `6:00 AM Pacific` (`America/Los_Angeles`, automatically adjusting for PDT/PST). Runs `publish --last-month` for the previous calendar month, then `backfill`.
+- Scheduled run: the 1st of each month at `6:00 AM Pacific` (`America/Los_Angeles`, automatically adjusting for PDT/PST). Runs `pipeline --last-month` to refresh the reporting sources once, then publish the previous month's draft and activity files.
 - Manual run: open the workflow in the Actions tab and use the workflow inputs
 
 For source setup details, see [docs/SOURCES.md](docs/SOURCES.md). For developer-oriented deployment details, see [src/README.md](src/README.md).

@@ -12,6 +12,21 @@ from ..config import Config
 from ..token_store import save_tokens_to_env
 
 
+GEN3_ENDPOINTS = frozenset({"daily_resilience", "daily_spo2", "daily_cardiovascular_age"})
+
+
+class OuraAPIError(RuntimeError):
+    """Oura could not complete a required request."""
+
+
+class OuraAuthenticationError(OuraAPIError):
+    """Oura authentication failed."""
+
+
+class OuraEndpointUnavailable(OuraAPIError):
+    """The Oura account cannot access an endpoint."""
+
+
 class OuraAPIClient:
     """Client for Oura Ring API v2 with OAuth2 support."""
 
@@ -65,7 +80,7 @@ class OuraAPIClient:
         url: str,
         params: Optional[Dict[str, Any]] = None,
         retry_auth: bool = True,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """Make authenticated API request with retry logic.
 
         Args:
@@ -74,7 +89,7 @@ class OuraAPIClient:
             retry_auth: If True, attempt token refresh on 401.
 
         Returns:
-            Parsed JSON response or None on failure.
+            Parsed JSON response. Request failures raise OuraAPIError.
         """
         headers = {"Authorization": f"Bearer {self.access_token}"}
 
@@ -89,31 +104,20 @@ class OuraAPIClient:
                     if retry_auth and self.refresh_token and not self._refresh_failed:
                         print("  Access token expired, refreshing...")
                         if self.refresh_access_token():
-                            headers = {"Authorization": f"Bearer {self.access_token}"}
                             return self._make_request(url, params, retry_auth=False)
-                        else:
-                            print("  Token refresh failed.")
-                            self._refresh_failed = True
-                            return None
-                    else:
-                        # 401 persists after refresh or refresh already failed
-                        return None
+                    self._refresh_failed = True
+                    raise OuraAuthenticationError("Oura rejected the access token.")
 
                 if response.status_code == 403:
-                    # Access forbidden — usually means expired Oura subscription
-                    return None
+                    raise OuraEndpointUnavailable("Oura denied access to this endpoint (HTTP 403).")
 
                 response.raise_for_status()
                 return response.json()
 
-            except requests.exceptions.RequestException as e:
-                print(
-                    f"  API request failed (attempt {attempt + 1}/{self.MAX_RETRIES}): {e}"
-                )
-                if attempt >= self.MAX_RETRIES - 1:
-                    return None
-                time.sleep(1.5**attempt)
-        return None
+            except requests.exceptions.RequestException:
+                if attempt < self.MAX_RETRIES - 1:
+                    time.sleep(1.5**attempt)
+        raise OuraAPIError("Oura request retries exhausted.")
 
     # ==========================================================================
     # OAuth2 Authentication
@@ -303,8 +307,7 @@ class OuraAPIClient:
         """
         endpoint = self.DAILY_ENDPOINTS.get(data_type)
         if not endpoint:
-            print(f"Error: Unknown data type: {data_type}")
-            return []
+            raise ValueError(f"Unknown Oura data type: {data_type}")
 
         url = f"{self.BASE_URL}{endpoint}"
         all_records = []
@@ -319,11 +322,16 @@ class OuraAPIClient:
             if next_token:
                 params["next_token"] = next_token
 
-            data = self._make_request(url, params)
-            if not data:
-                break
+            try:
+                data = self._make_request(url, params)
+            except OuraEndpointUnavailable:
+                if next_token is None and data_type in GEN3_ENDPOINTS:
+                    return []
+                raise
 
-            records = data.get("data", [])
+            records = data.get("data")
+            if not isinstance(records, list):
+                raise OuraAPIError("Oura returned an invalid daily data page.")
             all_records.extend(records)
 
             next_token = data.get("next_token")

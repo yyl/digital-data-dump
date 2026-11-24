@@ -1,9 +1,11 @@
 """Tests for Oura API client OAuth token refresh."""
 
 from unittest.mock import MagicMock, patch
-import requests
 
-from src.oura.api_client import OuraAPIClient
+import pytest
+
+from src.oura.api_client import OuraAPIClient, OuraAuthenticationError, OuraEndpointUnavailable
+from src.config import Config
 
 
 def test_oura_client_ensure_auth_refreshes_proactively():
@@ -19,7 +21,8 @@ def test_oura_client_ensure_auth_refreshes_proactively():
         mock_refresh.assert_called_once()
 
 
-def test_oura_client_ensure_auth_falls_back_when_no_refresh_token():
+def test_oura_client_ensure_auth_falls_back_when_no_refresh_token(monkeypatch):
+    monkeypatch.setattr(Config, "OURA_REFRESH_TOKEN", "")
     client = OuraAPIClient(
         client_id="cid",
         client_secret="csecret",
@@ -27,7 +30,9 @@ def test_oura_client_ensure_auth_falls_back_when_no_refresh_token():
         refresh_token="",
     )
 
-    assert client.ensure_auth() is True
+    with patch.object(client, "refresh_access_token") as refresh:
+        assert client.ensure_auth() is True
+    refresh.assert_not_called()
 
 
 def test_oura_client_refresh_access_token_success(tmp_path):
@@ -92,6 +97,20 @@ def test_oura_client_make_request_does_not_repeat_refresh_if_already_failed():
 
     with patch.object(client.session, "get", return_value=mock_resp), \
          patch.object(client, "refresh_access_token") as mock_refresh:
-        res = client._make_request("https://api.ouraring.com/v2/usercollection/daily_activity")
-        assert res is None
+        with pytest.raises(OuraAuthenticationError, match="rejected the access token"):
+            client._make_request("https://api.ouraring.com/v2/usercollection/daily_activity")
         mock_refresh.assert_not_called()
+
+
+def test_oura_optional_endpoint_unavailable_only_before_pagination():
+    client = OuraAPIClient(access_token="fixture")
+    unavailable = OuraEndpointUnavailable("fixture endpoint forbidden")
+    with patch.object(client, "_make_request", side_effect=unavailable):
+        assert client.fetch_daily_data("daily_spo2") == []
+        with pytest.raises(OuraEndpointUnavailable):
+            client.fetch_daily_data("daily_sleep")
+
+    first = {"data": [{"day": "2026-09-01"}], "next_token": "next"}
+    with patch.object(client, "_make_request", side_effect=[first, unavailable]):
+        with pytest.raises(OuraEndpointUnavailable):
+            client.fetch_daily_data("daily_spo2")

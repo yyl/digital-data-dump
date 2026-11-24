@@ -285,19 +285,20 @@ def test_optional_source_skips_only_missing_configuration(monkeypatch):
     monkeypatch.setattr(Config, "SURFILOG_EMAIL", "")
     monkeypatch.setattr(Config, "SURFILOG_PASSWORD", "")
     operation = MagicMock()
-    main._run_optional_surfilog(operation)
+    monkeypatch.setattr(main, "cmd_surfilog_sync", operation)
+    monkeypatch.setattr(main, "REPORT_SOURCES", ("surfilog",))
+    assert main.refresh_report_sources()
     operation.assert_not_called()
     monkeypatch.setattr(Config, "SURFILOG_EMAIL", "surfer@example.com")
     monkeypatch.setattr(Config, "SURFILOG_PASSWORD", "test-password")
     operation.side_effect = SurfilogAPIError("HTTP 401")
-    with pytest.raises(SurfilogAPIError, match="HTTP 401"):
-        main._run_optional_surfilog(operation)
+    assert not main.refresh_report_sources()
 
 
 @pytest.mark.parametrize("command", ["surfilog-sync", "surfilog-analyze"])
 def test_cli_dispatches_surfilog_commands(monkeypatch, command):
     operation = MagicMock()
-    monkeypatch.setattr(main, "cmd_" + command.replace("-", "_"), operation)
-    monkeypatch.setattr("sys.argv", ["main.py", command])
-    main.main()
+    monkeypatch.setattr(main, "cmd_surfilog_sync", operation)
+    monkeypatch.setattr(Config, "SURFILOG_DATABASE_PATH", Config.DATA_DIR / "unused-surfilog.db")
+    assert main.main([command]) == 0
     operation.assert_called_once_with()

@@ -1,270 +1,102 @@
-import unittest
-from unittest.mock import patch, MagicMock
-import sys
-import os
+from dataclasses import replace
+from unittest.mock import Mock
 
-# Mock missing modules for environment where dependencies might be missing
-sys.modules['dotenv'] = MagicMock()
-sys.modules['requests'] = MagicMock()
-# Mock github module as well as it might be used in imports
-sys.modules['github'] = MagicMock()
+import pytest
 
-# Ensure we can import main
-sys.path.append(os.getcwd())
 import main
+from src.blog.database import BlogDatabase
+from src.config import Config
+from src.schwab.analytics import SchwabAnalytics
+from src.schwab.database import SchwabDatabase
+from src.source_operations import Source, run_sources
 
-class TestMainRefactor(unittest.TestCase):
 
-    def test_run_analysis_helper(self):
-        """Test the run_analysis helper function logic."""
-        if not hasattr(main, 'run_analysis'):
-            self.skipTest("run_analysis not implemented yet")
+@pytest.fixture
+def source(tmp_path):
+    database = BlogDatabase(str(tmp_path / "fixture.db"))
+    database.init_tables()
+    return Source("fixture", "Fixture", lambda: database, Mock(return_value={}), Mock(return_value=1))
 
-        mock_sync = MagicMock()
-        mock_db_cls = MagicMock()
-        mock_analytics_cls = MagicMock()
 
-        mock_db_instance = mock_db_cls.return_value
-        mock_analytics_instance = mock_analytics_cls.return_value
+def test_registered_source_commands_share_sync_and_local_analysis(monkeypatch, source):
+    monkeypatch.setattr(main, "source_catalog", lambda: (source,))
 
-        # Mock methods
-        mock_db_instance.init_tables = MagicMock()
-        mock_db_instance.check_tables_exist = MagicMock(return_value=True)
-        mock_analytics_instance.analyze_something = MagicMock(return_value=42)
+    assert main.main(["fixture-sync"]) == 0
+    source.sync.assert_called_once_with()
+    source.analyze.assert_not_called()
 
-        # Test case 1: All args provided, check_tables_exist=True
-        main.run_analysis(
-            sync_func=mock_sync,
-            db_cls=mock_db_cls,
-            analytics_cls=mock_analytics_cls,
-            service_name="Test Service",
-            analysis_method="analyze_something",
-            db_filename="test.db",
-            check_tables_exist=True
-        )
+    assert main.main(["fixture-analyze", "--local"]) == 0
+    source.sync.assert_called_once_with()
+    source.analyze.assert_called_once_with(source.database())
 
-        mock_sync.assert_called_once()
-        mock_db_cls.assert_called_once()
-        mock_db_instance.init_tables.assert_called_once()
-        mock_db_instance.check_tables_exist.assert_called_once()
-        mock_analytics_cls.assert_called_once_with(db=mock_db_instance)
-        mock_analytics_instance.analyze_something.assert_called_once()
+    assert main.main(["fixture-analyze"]) == 0
+    assert source.sync.call_count == source.analyze.call_count == 2
 
-        # Reset mocks
-        mock_sync.reset_mock()
-        mock_db_cls.reset_mock()
-        mock_analytics_cls.reset_mock()
-        mock_db_instance.reset_mock()
-        mock_analytics_instance.reset_mock()
 
-        # Test case 2: No db_cls (Overcast style)
-        main.run_analysis(
-            sync_func=None,
-            db_cls=None,
-            analytics_cls=mock_analytics_cls,
-            service_name="Test Service 2",
-            analysis_method="analyze_something_else",
-            db_filename="test2.db"
-        )
+def test_aggregate_failure_continues_and_has_failed_exit_status(monkeypatch, source, capsys):
+    failure = replace(source, key="failing", name="Failing", sync=Mock(side_effect=ValueError("broken")),
+                      analyze=Mock())
+    monkeypatch.setattr(main, "source_catalog", lambda: (failure, source))
 
-        mock_sync.assert_not_called()
-        mock_db_cls.assert_not_called()
-        mock_analytics_cls.assert_called_once_with() # No args
+    assert main.main(["analyze"]) == 1
+    failure.analyze.assert_not_called()
+    source.analyze.assert_called_once()
+    assert "Refresh failed for Failing" in capsys.readouterr().out
 
-    @patch('main.run_analysis')
-    def test_cmd_readwise_analyze(self, mock_run):
-        """Test cmd_readwise_analyze calls run_analysis with correct args."""
-        try:
-            main.cmd_readwise_analyze()
-        except SystemExit:
-            pass
-        except Exception:
-            pass
 
-        if not mock_run.called:
-             self.skipTest("cmd_readwise_analyze not refactored yet")
+def test_unconfigured_optional_source_is_skipped_but_sync_failure_is_visible(source):
+    optional = replace(source, optional_for_reporting=True,
+                       validate=Mock(side_effect=ValueError("missing credentials")))
+    assert run_sources([optional], "refresh", reporting=True)
+    optional.sync.assert_not_called()
 
-        mock_run.assert_called_once()
-        _, kwargs = mock_run.call_args
+    optional.validate.side_effect = None
+    optional.sync.side_effect = ValueError("bad provider response")
+    assert not run_sources([optional], "refresh", reporting=True)
+    optional.analyze.assert_not_called()
 
-        from src.readwise.database import ReadwiseDatabase
-        from src.readwise.analytics import ReadwiseAnalytics
 
-        self.assertEqual(kwargs['sync_func'], main.cmd_readwise_sync)
-        self.assertEqual(kwargs['db_cls'], ReadwiseDatabase)
-        self.assertEqual(kwargs['analytics_cls'], ReadwiseAnalytics)
-        self.assertEqual(kwargs['service_name'], "Readwise archive")
-        self.assertEqual(kwargs['analysis_method'], "analyze_archived")
-        self.assertEqual(kwargs['db_filename'], "readwise.db")
-        self.assertTrue(kwargs['check_tables_exist'])
+def test_pipeline_refreshes_once(monkeypatch, source):
+    monkeypatch.setattr(main, "source_catalog", lambda: (source,))
+    monkeypatch.setattr(main, "REPORT_SOURCES", (source.key,))
+    publisher = Mock()
+    publisher.publish_pipeline.return_value = {
+        "draft": {"url": "draft"}, "data_repo": {"url": "data"},
+        "blog_repo": {"url": "blog"}, "blog_start_year_month": "2025-11",
+    }
+    monkeypatch.setattr("src.publish.Publisher", lambda: publisher)
 
-    @patch('main.run_analysis')
-    def test_cmd_foursquare_analyze(self, mock_run):
-        try:
-            main.cmd_foursquare_analyze()
-        except (Exception, SystemExit):
-            pass
+    assert main.main(["pipeline", "--last-month"]) == 0
+    source.sync.assert_called_once_with()
+    source.analyze.assert_called_once_with(source.database())
+    publisher.publish_pipeline.assert_called_once_with(last_month=True)
 
-        if not mock_run.called:
-             self.skipTest("cmd_foursquare_analyze not refactored yet")
 
-        _, kwargs = mock_run.call_args
-        from src.foursquare.database import FoursquareDatabase
-        from src.foursquare.analytics import FoursquareAnalytics
+def test_status_does_not_create_or_open_writable_database(monkeypatch, source, tmp_path, capsys):
+    missing = tmp_path / "empty" / "source.db"
+    source = replace(source, database=lambda: BlogDatabase(str(missing)))
+    monkeypatch.setattr(main, "source_catalog", lambda: (source,))
 
-        self.assertEqual(kwargs['sync_func'], main.cmd_foursquare_sync)
-        self.assertEqual(kwargs['db_cls'], FoursquareDatabase)
-        self.assertEqual(kwargs['analytics_cls'], FoursquareAnalytics)
-        self.assertEqual(kwargs['service_name'], "Foursquare checkins")
-        self.assertEqual(kwargs['analysis_method'], "analyze_checkins")
-        self.assertEqual(kwargs['db_filename'], "foursquare.db")
-        self.assertFalse(kwargs.get('check_tables_exist', False))
+    assert main.main(["status"]) == 0
+    assert "database: not initialized" in capsys.readouterr().out
+    assert not missing.parent.exists()
+    source.sync.assert_not_called()
 
-    @patch('main.run_analysis')
-    def test_cmd_letterboxd_analyze(self, mock_run):
-        try:
-            main.cmd_letterboxd_analyze()
-        except (Exception, SystemExit):
-            pass
 
-        if not mock_run.called:
-             self.skipTest("cmd_letterboxd_analyze not refactored yet")
+def test_status_reports_schwab_monthly_tables(monkeypatch, tmp_path, capsys):
+    path = tmp_path / "schwab.db"
+    monkeypatch.setattr(Config, "SCHWAB_DATABASE_PATH", path)
+    db = SchwabDatabase()
+    db.init_tables()
+    schwab = next(source for source in main.source_catalog() if source.key == "schwab")
+    monkeypatch.setattr(main, "source_catalog", lambda: (schwab,))
 
-        _, kwargs = mock_run.call_args
-        from src.letterboxd.database import LetterboxdDatabase
-        from src.letterboxd.analytics import LetterboxdAnalytics
+    assert main.main(["status"]) == 0
+    assert "analysis: unavailable" in capsys.readouterr().out
 
-        self.assertEqual(kwargs['sync_func'], main.cmd_letterboxd_sync)
-        self.assertEqual(kwargs['db_cls'], LetterboxdDatabase)
-        self.assertEqual(kwargs['analytics_cls'], LetterboxdAnalytics)
-        self.assertEqual(kwargs['service_name'], "Letterboxd movies")
-        self.assertEqual(kwargs['analysis_method'], "analyze_watched")
-        self.assertEqual(kwargs['db_filename'], "letterboxd.db")
-
-    @patch('main.run_analysis')
-    def test_cmd_overcast_analyze(self, mock_run):
-        try:
-            main.cmd_overcast_analyze()
-        except (Exception, SystemExit):
-            pass
-
-        if not mock_run.called:
-             self.skipTest("cmd_overcast_analyze not refactored yet")
-
-        _, kwargs = mock_run.call_args
-        from src.overcast.analytics import OvercastAnalytics
-
-        self.assertEqual(kwargs['sync_func'], main.cmd_overcast_sync)
-        self.assertIsNone(kwargs['db_cls'])
-        self.assertEqual(kwargs['analytics_cls'], OvercastAnalytics)
-        self.assertEqual(kwargs['service_name'], "Overcast podcasts")
-        self.assertEqual(kwargs['analysis_method'], "analyze_podcasts")
-        self.assertEqual(kwargs['db_filename'], "overcast.db")
-
-    @patch('main.run_analysis')
-    def test_cmd_strong_analyze(self, mock_run):
-        try:
-            main.cmd_strong_analyze()
-        except (Exception, SystemExit):
-            pass
-
-        if not mock_run.called:
-             self.skipTest("cmd_strong_analyze not refactored yet")
-
-        _, kwargs = mock_run.call_args
-        from src.strong.database import StrongDatabase
-        from src.strong.analytics import StrongAnalytics
-
-        self.assertEqual(kwargs['sync_func'], main.cmd_strong_sync)
-        self.assertEqual(kwargs['db_cls'], StrongDatabase)
-        self.assertEqual(kwargs['analytics_cls'], StrongAnalytics)
-        self.assertEqual(kwargs['service_name'], "Strong workouts")
-        self.assertEqual(kwargs['analysis_method'], "analyze_workouts")
-        self.assertEqual(kwargs['db_filename'], "strong.db")
-
-    @patch('main.run_analysis')
-    def test_cmd_apple_health_analyze(self, mock_run):
-        try:
-            main.cmd_apple_health_analyze()
-        except (Exception, SystemExit):
-            pass
-
-        if not mock_run.called:
-             self.skipTest("cmd_apple_health_analyze not implemented yet")
-
-        _, kwargs = mock_run.call_args
-        from src.apple_health.database import AppleHealthDatabase
-        from src.apple_health.analytics import AppleHealthAnalytics
-
-        self.assertEqual(kwargs['sync_func'], main.cmd_apple_health_sync)
-        self.assertEqual(kwargs['db_cls'], AppleHealthDatabase)
-        self.assertEqual(kwargs['analytics_cls'], AppleHealthAnalytics)
-        self.assertEqual(kwargs['service_name'], "Apple Health workouts")
-        self.assertEqual(kwargs['analysis_method'], "analyze_workouts")
-        self.assertEqual(kwargs['db_filename'], "apple_health.db")
-
-    @patch('main.run_analysis')
-    def test_cmd_blog_analyze(self, mock_run):
-        try:
-            main.cmd_blog_analyze()
-        except (Exception, SystemExit):
-            pass
-
-        if not mock_run.called:
-             self.skipTest("cmd_blog_analyze not implemented yet")
-
-        _, kwargs = mock_run.call_args
-        from src.blog.database import BlogDatabase
-        from src.blog.analytics import BlogAnalytics
-
-        self.assertEqual(kwargs['sync_func'], main.cmd_blog_sync)
-        self.assertEqual(kwargs['db_cls'], BlogDatabase)
-        self.assertEqual(kwargs['analytics_cls'], BlogAnalytics)
-        self.assertEqual(kwargs['service_name'], "Blog posts")
-        self.assertEqual(kwargs['analysis_method'], "analyze_posts")
-        self.assertEqual(kwargs['db_filename'], "blog.db")
-
-    @patch('main.run_analysis')
-    def test_cmd_hardcover_analyze(self, mock_run):
-        try:
-            main.cmd_hardcover_analyze()
-        except (Exception, SystemExit):
-            pass
-
-        if not mock_run.called:
-             self.skipTest("cmd_hardcover_analyze not refactored yet")
-
-        _, kwargs = mock_run.call_args
-        from src.hardcover.database import HardcoverDatabase
-        from src.hardcover.analytics import HardcoverAnalytics
-
-        self.assertEqual(kwargs['sync_func'], main.cmd_hardcover_sync)
-        self.assertEqual(kwargs['db_cls'], HardcoverDatabase)
-        self.assertEqual(kwargs['analytics_cls'], HardcoverAnalytics)
-        self.assertEqual(kwargs['service_name'], "Hardcover books")
-        self.assertEqual(kwargs['analysis_method'], "analyze_books")
-        self.assertEqual(kwargs['db_filename'], "hardcover.db")
-
-    @patch('main.run_analysis')
-    def test_cmd_github_analyze(self, mock_run):
-        try:
-            main.cmd_github_analyze()
-        except (Exception, SystemExit):
-            pass
-
-        if not mock_run.called:
-             self.skipTest("cmd_github_analyze not refactored yet")
-
-        _, kwargs = mock_run.call_args
-        from src.github.database import GitHubDatabase
-        from src.github.analytics import GitHubAnalytics
-
-        self.assertEqual(kwargs['sync_func'], main.cmd_github_sync)
-        self.assertEqual(kwargs['db_cls'], GitHubDatabase)
-        self.assertEqual(kwargs['analytics_cls'], GitHubAnalytics)
-        self.assertEqual(kwargs['service_name'], "GitHub commits")
-        self.assertEqual(kwargs['analysis_method'], "analyze_commits")
-        self.assertEqual(kwargs['db_filename'], "github.db")
-
-if __name__ == '__main__':
-    unittest.main()
+    SchwabAnalytics(db).analyze_monthly_pnl()
+    assert main.main(["status"]) == 0
+    output = capsys.readouterr().out
+    assert "monthly_pnl records: 0" in output
+    assert "monthly_account_snapshots records: 0" in output
+    assert "analysis: unavailable" not in output

@@ -20,6 +20,33 @@ class StrongAnalytics:
         """
         self.db = db or StrongDatabase()
 
+    @staticmethod
+    def _workout_chronology(conn):
+        # Legacy CSV databases predate the absolute API timestamp.
+        columns = {row['name'] for row in conn.execute('PRAGMA table_info(workouts)')}
+        return ('COALESCE(w.started_at_utc, w.started_at)'
+                if 'started_at_utc' in columns else 'w.started_at')
+
+    def get_weightlifting_months(self) -> list[str]:
+        """Find months whose latest workout has exercises to display."""
+        with self.db.read_connection(required_tables=("workouts", "exercises")) as conn:
+            if conn is None:
+                return []
+            chronology = self._workout_chronology(conn)
+            return [row[0] for row in conn.execute(f"""
+                WITH ranked AS (
+                    SELECT w.id, strftime('%Y-%m', w.started_at) AS year_month,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY strftime('%Y-%m', w.started_at)
+                               ORDER BY julianday({chronology}) DESC, w.id DESC
+                           ) AS recency
+                    FROM workouts w
+                )
+                SELECT year_month FROM ranked
+                WHERE recency = 1 AND year_month IS NOT NULL
+                  AND EXISTS (SELECT 1 FROM exercises WHERE workout_id = ranked.id)
+            """)]
+
     def get_weightlifting_summary(self, year_month: str) -> Optional[Dict[str, Any]]:
         """Get the latest workout's weights, exercise volumes, and duration.
 
@@ -31,12 +58,7 @@ class StrongAnalytics:
         with self.db.read_connection(required_tables=("workouts", "exercises")) as conn:
             if conn is None:
                 return None
-            # Calendar grouping stays local; chronology uses the absolute API
-            # timestamp across DST folds and workouts recorded in other zones.
-            # Old CSV schemas remain readable without a write-side migration.
-            columns = {row['name'] for row in conn.execute('PRAGMA table_info(workouts)')}
-            chronology = ('COALESCE(w.started_at_utc, w.started_at)'
-                          if 'started_at_utc' in columns else 'w.started_at')
+            chronology = self._workout_chronology(conn)
             workout = conn.execute(f"""
                 SELECT w.id, w.workout_name, w.started_at, w.duration_minutes
                 FROM workouts w

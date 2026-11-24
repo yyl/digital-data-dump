@@ -1,10 +1,3 @@
-import sys
-from unittest.mock import MagicMock
-
-# Mock missing dependencies
-sys.modules['dotenv'] = MagicMock()
-sys.modules['requests'] = MagicMock()
-
 import pytest
 import sqlite3
 import os

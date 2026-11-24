@@ -23,13 +23,13 @@ class LetterboxdAnalytics:
     def _ensure_analysis_table(self) -> None:
         """Create analysis table if it doesn't exist."""
         with self.db.get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             conn.execute(CREATE_ANALYSIS_TABLE)
             for index_sql in ANALYSIS_INDEXES:
                 conn.execute(index_sql)
-            try:
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(analysis)")}
+            if "minutes_watched" not in columns:
                 conn.execute("ALTER TABLE analysis ADD COLUMN minutes_watched INTEGER DEFAULT 0;")
-            except Exception:
-                pass
 
     def analyze_watched(self) -> int:
         """Analyze watched movies by month.

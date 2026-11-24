@@ -88,7 +88,7 @@ class SchwabSyncManager:
         }
 
         if not self.ensure_auth():
-            return stats
+            raise RuntimeError("Could not authenticate with Charles Schwab.")
 
         self.db.init_tables()
 

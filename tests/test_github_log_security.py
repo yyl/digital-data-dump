@@ -139,18 +139,12 @@ def test_activity_cli_errors_are_safe_in_stdout_stderr_and_logging(
 def test_sync_failure_aborts_cli_before_publishing(activity, monkeypatch, capsys, command):
     _, api, _ = activity
     arrange_failure(api, "403", "first_page")
-    for source in ("readwise", "letterboxd", "foursquare", "overcast", "strong",
-                   "apple_health", "blog", "hardcover", "oura"):
-        monkeypatch.setattr(main, f"cmd_{source}_analyze", lambda: None)
+    github = next(source for source in main.source_catalog() if source.key == "github")
+    monkeypatch.setattr(main, "source_catalog", lambda: (github,))
+    monkeypatch.setattr(main, "REPORT_SOURCES", ("github",))
     publisher = MagicMock()
     monkeypatch.setattr("src.publish.Publisher", publisher)
-    monkeypatch.setattr(sys, "argv", ["main.py", command])
-    with pytest.raises(GitHubSyncError):
-        try:
-            main.main()
-        except GitHubSyncError:
-            traceback.print_exc(file=sys.stderr)
-            raise
+    assert main.main([command]) == 1
     captured = capsys.readouterr()
     for sensitive in SENSITIVE_VALUES:
         assert sensitive not in captured.out + captured.err
@@ -177,22 +171,16 @@ def test_database_or_unexpected_errors_cannot_echo_private_data(activity, capsys
 def test_bulk_analyze_prints_only_sanitized_failure(activity, monkeypatch, capsys):
     _, api, _ = activity
     arrange_failure(api, "403", "next_page")
-    for source in ("readwise", "foursquare", "letterboxd", "overcast", "strong",
-                   "apple_health", "blog", "hardcover", "oura", "workflowy"):
-        monkeypatch.setattr(
-            main, f"cmd_{source}_sync", MagicMock(side_effect=RuntimeError("Fixture source skipped")),
-        )
-    monkeypatch.setattr(Config, "validate_oura", lambda: True)
-    monkeypatch.setattr(Config, "validate_schwab", lambda: True)
-    monkeypatch.setattr(main, "cmd_schwab_analyze", lambda: None)
-    main.cmd_analyze()
+    github = next(source for source in main.source_catalog() if source.key == "github")
+    monkeypatch.setattr(main, "source_catalog", lambda: (github,))
+    assert main.main(["analyze"]) == 1
     output = capsys.readouterr()
     assert "Error: GitHub activity sync failed (HTTP 403)" in output.out
     for sensitive in SENSITIVE_VALUES:
         assert sensitive not in output.out + output.err
 
 
-def test_uncaught_cli_subprocess_stderr_does_not_expose_private_url(tmp_path):
+def test_cli_subprocess_does_not_expose_private_url(tmp_path):
     script = """
 import sys
 from pathlib import Path
@@ -220,14 +208,13 @@ with patch.object(Config, 'DATA_DIR', root), patch.object(Config, 'CODEBASE_USER
      patch.object(Config, 'CODEBASE_GITHUB_TOKEN', sys.argv[3]):
     manager = GitHubSyncManager(db=GitHubDatabase(str(root / 'github.db')), api=api)
     with patch('src.github.sync.GitHubSyncManager', return_value=manager):
-        sys.argv = ['main.py', 'github-analyze']
-        main.main()
+        raise SystemExit(main.main(['github-analyze']))
 """
     result = subprocess.run(
         [sys.executable, "-c", script, str(tmp_path), PRIVATE_REPO, TOKEN],
         capture_output=True, text=True, timeout=30,
     )
     assert result.returncode != 0
-    assert "GitHubSyncError: GitHub activity sync failed (HTTP 403)" in result.stderr
+    assert "Error: GitHub activity sync failed (HTTP 403)" in result.stdout
     for sensitive in SENSITIVE_VALUES:
         assert sensitive not in result.stdout + result.stderr

@@ -1,647 +1,64 @@
 #!/usr/bin/env python3
-"""
-Digital Footprint Dump - Main Entry Point
+"""Collect, analyze, and publish personal activity data."""
 
-Export your digital footprints to local SQLite databases.
-
-Usage:
-    python main.py init              # Initialize all databases
-    python main.py sync              # Sync all services
-    python main.py analyze           # Analyze all sources
-    python main.py readwise-sync     # Sync Readwise only
-    python main.py readwise-analyze  # Analyze Readwise archive
-    python main.py foursquare-sync   # Sync Foursquare only
-    python main.py letterboxd-sync   # Import Letterboxd data
-    python main.py letterboxd-analyze # Analyze Letterboxd movies
-    python main.py overcast-sync     # Import Overcast data
-    python main.py overcast-analyze  # Analyze Overcast podcasts
-    python main.py strong-sync       # Import Strong workout data
-    python main.py strong-analyze    # Analyze Strong workouts
-    python main.py apple-health-sync # Import Apple Health workouts
-    python main.py apple-health-analyze # Analyze Apple Health workouts
-    python main.py blog-sync         # Sync public blog posts
-    python main.py blog-analyze      # Analyze published blog posts
-    python main.py hardcover-sync    # Sync Hardcover books
-    python main.py hardcover-analyze # Analyze Hardcover books
-    python main.py github-sync       # Sync GitHub commits
-    python main.py github-analyze    # Analyze GitHub activity
-    python main.py oura-sync         # Sync Oura Ring data
-    python main.py oura-analyze      # Analyze Oura Ring daily summaries
-    python main.py schwab-sync       # Sync Charles Schwab accounts
-    python main.py schwab-analyze    # Analyze Schwab monthly P&L
-    python main.py workflowy-sync    # Sync Workflowy nodes
-    python main.py workflowy-analyze # Analyze monthly Workflowy node activity
-    python main.py surfilog-sync     # Sync Surfilog sessions and individual waves
-    python main.py surfilog-analyze  # Sync and analyze monthly surfing metrics
-    python main.py kaya-sync         # Import a Kaya bouldering export
-    python main.py kaya-analyze      # Import and analyze Kaya bouldering activity
-    python main.py publish           # Publish monthly report to data repo
-    python main.py publish --dry-run # Validate config without publishing
-    python main.py publish --skip-sync-analysis # Publish from current analysis data
-    python main.py backfill          # Commit activity data files to configured repos
-    python main.py status            # Show sync status
-"""
-
-import sys
 import argparse
+from functools import partial
+
 from src.config import Config
-
-
-def run_analysis(
-    sync_func,
-    db_cls,
-    analytics_cls,
-    service_name: str,
-    analysis_method: str,
-    db_filename: str,
-    check_tables_exist: bool = False
-):
-    """Generic helper to run analysis for a service."""
-    # Ensure latest data
-    if sync_func:
-        sync_func()
-
-    print(f"Analyzing {service_name}...")
-
-    db = db_cls() if db_cls else None
-
-    if db and hasattr(db, 'init_tables'):
-        db.init_tables()
-
-    if check_tables_exist and db and hasattr(db, 'check_tables_exist'):
-        if not db.check_tables_exist():
-            print(f"Error: {service_name.split()[0]} database tables not found.")
-            print(f"Please run 'python main.py {service_name.split()[0].lower()}-sync' first to populate the database.")
-            sys.exit(1)
-
-    if db:
-        analytics = analytics_cls(db=db)
-    else:
-        analytics = analytics_cls()
-
-    method = getattr(analytics, analysis_method)
-    record_count = method()
-
-    print(f"Analysis complete! {record_count} monthly records written to the analysis table in {db_filename}")
-
-
-def cmd_init():
-    """Initialize all databases."""
-    print("Initializing databases...\n")
-    
-    # Readwise
-    from src.readwise.database import ReadwiseDatabase
-    db = ReadwiseDatabase()
-    db.init_tables()
-    
-    # Foursquare
-    from src.foursquare.database import FoursquareDatabase
-    fsq_db = FoursquareDatabase()
-    fsq_db.init_tables()
-    
-    # Letterboxd
-    from src.letterboxd.database import LetterboxdDatabase
-    lbxd_db = LetterboxdDatabase()
-    lbxd_db.init_tables()
-    
-    # Strong
-    from src.strong.database import StrongDatabase
-    strong_db = StrongDatabase()
-    strong_db.init_tables()
-
-    # Apple Health
-    from src.apple_health.database import AppleHealthDatabase
-    apple_health_db = AppleHealthDatabase()
-    apple_health_db.init_tables()
-
-    # Blog
-    from src.blog.database import BlogDatabase
-    blog_db = BlogDatabase()
-    blog_db.init_tables()
-    
-    # Hardcover
-    from src.hardcover.database import HardcoverDatabase
-    hc_db = HardcoverDatabase()
-    hc_db.init_tables()
-    
-    # GitHub
-    from src.github.database import GitHubDatabase
-    gh_db = GitHubDatabase()
-    gh_db.init_tables()
-    
-    # Oura
-    from src.oura.database import OuraDatabase
-    oura_db = OuraDatabase()
-    oura_db.init_tables()
-
-    # Charles Schwab
-    from src.schwab.database import SchwabDatabase
-    schwab_db = SchwabDatabase()
-    schwab_db.init_tables()
-
-    # Workflowy
-    from src.workflowy.database import WorkflowyDatabase
-    workflowy_db = WorkflowyDatabase()
-    workflowy_db.init_tables()
-
-    from src.surfilog.database import SurfilogDatabase
-    SurfilogDatabase().init_tables()
-
-    from src.kaya.database import KayaDatabase
-    KayaDatabase().init_tables()
-    
-    print("\nDone!")
+from src.source_operations import Source, run_sources
 
 
 def cmd_readwise_sync():
     """Sync Readwise data only."""
-    try:
-        Config.validate_readwise()
-    except ValueError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
-    
+    Config.validate_readwise()
+
     from src.readwise.api_client import ReadwiseAPIClient
     from src.readwise.database import ReadwiseDatabase
     from src.readwise.sync import SyncManager
-    
+
     api = ReadwiseAPIClient()
-    
+
     print("Validating Readwise access token...")
     if not api.validate_token():
-        print("Error: Invalid Readwise access token. Please check your .env file.")
-        sys.exit(1)
+        raise ValueError("Invalid Readwise access token. Check your .env file.")
     print("Token validated!\n")
-    
+
     db = ReadwiseDatabase()
     db.init_tables()
-    
+
     sync_manager = SyncManager(db=db, api=api)
-    sync_manager.sync_all()
-
-
-def cmd_readwise_analyze():
-    """Analyze Readwise archived articles."""
-    from src.readwise.database import ReadwiseDatabase
-    from src.readwise.analytics import ReadwiseAnalytics
-
-    run_analysis(
-        sync_func=cmd_readwise_sync,
-        db_cls=ReadwiseDatabase,
-        analytics_cls=ReadwiseAnalytics,
-        service_name="Readwise archive",
-        analysis_method="analyze_archived",
-        db_filename="readwise.db",
-        check_tables_exist=True
-    )
-
-
-def cmd_publish(dry_run: bool = False, skip_sync_analysis: bool = False, last_month: bool = False):
-    """Publish monthly summary to the data repository.
-    
-    Args:
-        dry_run: If True, write and display a local preview using current data.
-        skip_sync_analysis: If True, reuse current analysis data without rerunning sync/analyze.
-        last_month: If True, publish the summary for the previous calendar month.
-    """
-    if dry_run:
-        print("=== DRY RUN MODE ===")
-        print("Generating markdown preview...\n")
-        
-        from src.publish import Publisher
-        
-        try:
-            publisher = Publisher()
-            markdown = publisher.generate_markdown(last_month=last_month)
-            preview = publisher.save_preview(markdown)
-            
-            print("=" * 60)
-            print(markdown)
-            print("=" * 60)
-            print("\n=== DRY RUN COMPLETE ===")
-            print(f"Preview saved to {preview}")
-            print("Use 'publish' without --dry-run to publish.")
-        except Exception as e:
-            print(f"Error: {e}")
-            sys.exit(1)
-        return
-
-    if not skip_sync_analysis:
-        # First ensure we have the latest analysis from all sources
-        print("=== Updating Analysis ===\n")
-
-        print("--- Readwise ---")
-        cmd_readwise_analyze()
-
-        print("\n--- Letterboxd ---")
-        cmd_letterboxd_analyze()
-
-        print("\n--- Foursquare ---")
-        cmd_foursquare_analyze()
-
-        print("\n--- Overcast ---")
-        cmd_overcast_analyze()
-
-        print("\n--- Strong ---")
-        cmd_strong_analyze()
-
-        print("\n--- Apple Health ---")
-        cmd_apple_health_analyze()
-
-        print("\n--- Blog ---")
-        cmd_blog_analyze()
-
-        print("\n--- Hardcover ---")
-        cmd_hardcover_analyze()
-
-        print("\n--- GitHub ---")
-        cmd_github_analyze()
-
-        print("\n--- Oura ---")
-        try:
-            Config.validate_oura()
-            cmd_oura_analyze()
-        except ValueError as e:
-            print(f"Skipping Oura: {e}\n")
-
-        _run_optional_surfilog(cmd_surfilog_analyze)
-        cmd_kaya_analyze()
-    else:
-        print("=== Skipping Sync And Analysis ===")
-        print("Publishing from current analysis data...\n")
-    
-    print("\n=== Publishing ===")
-    print("Publishing monthly summary...")
-    
-    from src.publish import Publisher
-    
-    try:
-        publisher = Publisher()
-        result = publisher.publish(last_month=last_month)
-        print(f"\nPublished successfully!")
-        print(f"Commit: {result['url']}")
-    except ValueError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
-
-
-def cmd_backfill():
-    """Generate and commit Hugo data files to configured repositories."""
-    # First ensure we have the latest analysis from all sources
-    print("=== Updating Analysis ===\n")
-    
-    print("--- Readwise ---")
-    cmd_readwise_analyze()
-    
-    print("\n--- Letterboxd ---")
-    cmd_letterboxd_analyze()
-    
-    print("\n--- Foursquare ---")
-    cmd_foursquare_analyze()
-    
-    print("\n--- Overcast ---")
-    cmd_overcast_analyze()
-    
-    print("\n--- Strong ---")
-    cmd_strong_analyze()
-
-    print("\n--- Apple Health ---")
-    cmd_apple_health_analyze()
-
-    print("\n--- Blog ---")
-    cmd_blog_analyze()
-
-    print("\n--- Hardcover ---")
-    cmd_hardcover_analyze()
-    
-    print("\n--- GitHub ---")
-    cmd_github_analyze()
-    
-    print("\n--- Oura ---")
-    try:
-        Config.validate_oura()
-        cmd_oura_analyze()
-    except ValueError as e:
-        print(f"Skipping Oura: {e}\n")
-    
-    _run_optional_surfilog(cmd_surfilog_analyze)
-    cmd_kaya_analyze()
-
-    print("\n=== Backfilling Data ===")
-    print("Generating and committing data files...")
-    
-    from src.publish import Publisher
-    
-    try:
-        publisher = Publisher()
-        result = publisher.backfill()
-        print(f"\nBackfill complete!")
-        print(
-            "Full-history data repo commit "
-            f"({result['data_repo']['message']}): {result['data_repo']['url']}"
-        )
-        print(f"Files: {', '.join(result['data_repo']['file_paths'])}")
-        print(
-            "Blog repo commit "
-            f"(since {result['blog_start_year_month']}): {result['blog_repo']['url']}"
-        )
-        print(f"Files: {', '.join(result['blog_repo']['file_paths'])}")
-    except ValueError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+    return sync_manager.sync_all()
 
 
 def cmd_foursquare_sync():
     """Sync Foursquare data only."""
     from src.foursquare.sync import FoursquareSyncManager
-    
+
     sync_manager = FoursquareSyncManager()
-    sync_manager.sync()
-
-
-def cmd_foursquare_analyze():
-    """Analyze Foursquare checkins."""
-    from src.foursquare.database import FoursquareDatabase
-    from src.foursquare.analytics import FoursquareAnalytics
-
-    run_analysis(
-        sync_func=cmd_foursquare_sync,
-        db_cls=FoursquareDatabase,
-        analytics_cls=FoursquareAnalytics,
-        service_name="Foursquare checkins",
-        analysis_method="analyze_checkins",
-        db_filename="foursquare.db"
-    )
+    return sync_manager.sync()
 
 
 def cmd_letterboxd_sync():
     """Import Letterboxd data from CSV export."""
     from src.letterboxd.importer import LetterboxdImporter
-    
+
     importer = LetterboxdImporter()
-    importer.sync()
-
-
-def cmd_letterboxd_analyze():
-    """Analyze Letterboxd watched movies."""
-    from src.letterboxd.database import LetterboxdDatabase
-    from src.letterboxd.analytics import LetterboxdAnalytics
-
-    run_analysis(
-        sync_func=cmd_letterboxd_sync,
-        db_cls=LetterboxdDatabase,
-        analytics_cls=LetterboxdAnalytics,
-        service_name="Letterboxd movies",
-        analysis_method="analyze_watched",
-        db_filename="letterboxd.db"
-    )
-
-
-def cmd_analyze():
-    """Analyze all sources."""
-    print("=== Analyzing All Sources ===\n")
-    
-    # Readwise
-    print("--- Readwise ---")
-    try:
-        from src.readwise.database import ReadwiseDatabase
-        from src.readwise.analytics import ReadwiseAnalytics
-        
-        # Sync first
-        cmd_readwise_sync()
-        
-        db = ReadwiseDatabase()
-        analytics = ReadwiseAnalytics(db=db)
-        count = analytics.analyze_archived()
-        print(f"  {count} monthly records written")
-    except Exception as e:
-        print(f"  Error: {e}")
-    
-    print()
-    
-    # Foursquare
-    print("--- Foursquare ---")
-    try:
-        from src.foursquare.database import FoursquareDatabase
-        from src.foursquare.analytics import FoursquareAnalytics
-        
-        # Sync first
-        cmd_foursquare_sync()
-        
-        db = FoursquareDatabase()
-        db.init_tables()
-        analytics = FoursquareAnalytics(db=db)
-        count = analytics.analyze_checkins()
-        print(f"  {count} monthly records written")
-    except Exception as e:
-        print(f"  Error: {e}")
-    
-    print()
-    
-    # Letterboxd
-    print("--- Letterboxd ---")
-    try:
-        from src.letterboxd.database import LetterboxdDatabase
-        from src.letterboxd.analytics import LetterboxdAnalytics
-        
-        # Sync first
-        cmd_letterboxd_sync()
-        
-        db = LetterboxdDatabase()
-        db.init_tables()
-        analytics = LetterboxdAnalytics(db=db)
-        count = analytics.analyze_watched()
-        print(f"  {count} monthly records written")
-    except Exception as e:
-        print(f"  Error: {e}")
-    
-    print()
-    
-    # Overcast
-    print("--- Overcast ---")
-    try:
-        from src.overcast.analytics import OvercastAnalytics
-        
-        # Sync first
-        cmd_overcast_sync()
-        
-        analytics = OvercastAnalytics()
-        count = analytics.analyze_podcasts()
-        print(f"  {count} monthly records written")
-    except Exception as e:
-        print(f"  Error: {e}")
-    
-    print()
-    
-    # Strong
-    print("--- Strong ---")
-    try:
-        from src.strong.database import StrongDatabase
-        from src.strong.analytics import StrongAnalytics
-        
-        # Sync first
-        cmd_strong_sync()
-        
-        db = StrongDatabase()
-        db.init_tables()
-        analytics = StrongAnalytics(db=db)
-        count = analytics.analyze_workouts()
-        print(f"  {count} monthly records written")
-    except Exception as e:
-        print(f"  Error: {e}")
-    
-    print()
-
-    # Apple Health
-    print("--- Apple Health ---")
-    try:
-        from src.apple_health.database import AppleHealthDatabase
-        from src.apple_health.analytics import AppleHealthAnalytics
-
-        cmd_apple_health_sync()
-
-        db = AppleHealthDatabase()
-        db.init_tables()
-        analytics = AppleHealthAnalytics(db=db)
-        count = analytics.analyze_workouts()
-        print(f"  {count} monthly records written")
-    except Exception as e:
-        print(f"  Error: {e}")
-    
-    print()
-
-    # Blog
-    print("--- Blog ---")
-    try:
-        from src.blog.analytics import BlogAnalytics
-        from src.blog.database import BlogDatabase
-
-        cmd_blog_sync()
-
-        db = BlogDatabase()
-        db.init_tables()
-        analytics = BlogAnalytics(db=db)
-        count = analytics.analyze_posts()
-        print(f"  {count} monthly records written")
-    except Exception as e:
-        print(f"  Error: {e}")
-
-    print()
-    
-    # Hardcover
-    print("--- Hardcover ---")
-    try:
-        from src.hardcover.database import HardcoverDatabase
-        from src.hardcover.analytics import HardcoverAnalytics
-        
-        # Sync first
-        cmd_hardcover_sync()
-        
-        db = HardcoverDatabase()
-        analytics = HardcoverAnalytics(db=db)
-        count = analytics.analyze_books()
-        print(f"  {count} monthly records written")
-    except Exception as e:
-        print(f"  Error: {e}")
-    
-    print()
-    
-    # GitHub
-    print("--- GitHub ---")
-    try:
-        from src.github.database import GitHubDatabase
-        from src.github.analytics import GitHubAnalytics
-        
-        # Sync first
-        cmd_github_sync()
-        
-        gh_db = GitHubDatabase()
-        gh_analytics = GitHubAnalytics(db=gh_db)
-        count = gh_analytics.analyze_commits()
-        print(f"  {count} monthly records written")
-    except Exception as e:
-        print(f"  Error: {e}")
-    
-    print()
-    
-    print("\n--- Oura ---")
-    try:
-        from src.oura.database import OuraDatabase
-        from src.oura.analytics import OuraAnalytics
-
-        # Sync first
-        Config.validate_oura()
-        cmd_oura_sync()
-
-        oura_db = OuraDatabase()
-        oura_analytics = OuraAnalytics(db=oura_db)
-        count = oura_analytics.analyze_daily_summaries()
-        print(f"  {count} monthly records written")
-    except Exception as e:
-        print(f"  Error/skip: {e}")
-
-    print("\n--- Charles Schwab ---")
-    try:
-        Config.validate_schwab()
-        cmd_schwab_analyze()
-    except Exception as e:
-        print(f"  Error/skip: {e}")
-
-    print("\n--- Workflowy ---")
-    try:
-        Config.validate_workflowy()
-        cmd_workflowy_analyze()
-    except Exception as e:
-        print(f"  Error/skip: {e}")
-
-    _run_optional_surfilog(cmd_surfilog_analyze)
-    cmd_kaya_analyze()
-
-    print("\nAnalysis complete!")
+    return importer.sync()
 
 
 def cmd_overcast_sync():
     """Import Overcast data from OPML export."""
     from src.overcast.importer import OvercastImporter
-    
+
     importer = OvercastImporter()
-    importer.sync()
-
-
-def cmd_overcast_analyze():
-    """Analyze Overcast podcast data."""
-    from src.overcast.analytics import OvercastAnalytics
-
-    run_analysis(
-        sync_func=cmd_overcast_sync,
-        db_cls=None,
-        analytics_cls=OvercastAnalytics,
-        service_name="Overcast podcasts",
-        analysis_method="analyze_podcasts",
-        db_filename="overcast.db"
-    )
+    return importer.sync()
 
 
 def cmd_strong_sync(from_csv=False):
     """Sync Strong through the API, with explicit complete-CSV recovery."""
     from src.strong.sync import StrongSyncManager
 
-    StrongSyncManager().sync(from_csv=from_csv)
-
-
-def cmd_strong_analyze():
-    """Analyze Strong workout data."""
-    from src.strong.database import StrongDatabase
-    from src.strong.analytics import StrongAnalytics
-
-    run_analysis(
-        sync_func=cmd_strong_sync,
-        db_cls=StrongDatabase,
-        analytics_cls=StrongAnalytics,
-        service_name="Strong workouts",
-        analysis_method="analyze_workouts",
-        db_filename="strong.db"
-    )
+    return StrongSyncManager().sync(from_csv=from_csv)
 
 
 def cmd_apple_health_sync():
@@ -652,21 +69,7 @@ def cmd_apple_health_sync():
     stats = importer.sync()
     if not stats['success']:
         raise RuntimeError('Apple Health JSON sync requires attention; see the import summary and json_import_state.')
-
-
-def cmd_apple_health_analyze():
-    """Analyze Apple Health workout data."""
-    from src.apple_health.database import AppleHealthDatabase
-    from src.apple_health.analytics import AppleHealthAnalytics
-
-    run_analysis(
-        sync_func=cmd_apple_health_sync,
-        db_cls=AppleHealthDatabase,
-        analytics_cls=AppleHealthAnalytics,
-        service_name="Apple Health workouts",
-        analysis_method="analyze_workouts",
-        db_filename="apple_health.db"
-    )
+    return stats
 
 
 def cmd_blog_sync():
@@ -674,183 +77,56 @@ def cmd_blog_sync():
     from src.blog.sync import BlogSyncManager
 
     sync_manager = BlogSyncManager()
-    sync_manager.sync()
-
-
-def cmd_blog_analyze():
-    """Analyze published blog posts."""
-    from src.blog.analytics import BlogAnalytics
-    from src.blog.database import BlogDatabase
-
-    run_analysis(
-        sync_func=cmd_blog_sync,
-        db_cls=BlogDatabase,
-        analytics_cls=BlogAnalytics,
-        service_name="Blog posts",
-        analysis_method="analyze_posts",
-        db_filename="blog.db",
-    )
+    return sync_manager.sync()
 
 
 def cmd_hardcover_sync():
     """Sync Hardcover book data."""
-    try:
-        Config.validate_hardcover()
-    except ValueError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
-    
+    Config.validate_hardcover()
+
     from src.hardcover.sync import HardcoverSyncManager
-    
+
     sync_manager = HardcoverSyncManager()
-    sync_manager.sync()
-
-
-def cmd_hardcover_analyze():
-    """Analyze Hardcover book data."""
-    from src.hardcover.database import HardcoverDatabase
-    from src.hardcover.analytics import HardcoverAnalytics
-
-    run_analysis(
-        sync_func=cmd_hardcover_sync,
-        db_cls=HardcoverDatabase,
-        analytics_cls=HardcoverAnalytics,
-        service_name="Hardcover books",
-        analysis_method="analyze_books",
-        db_filename="hardcover.db"
-    )
+    return sync_manager.sync()
 
 
 def cmd_github_sync():
     """Sync GitHub commit data."""
-    try:
-        Config.validate_github_activity()
-    except ValueError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
-    
+    Config.validate_github_activity()
+
     from src.github.sync import GitHubSyncManager
-    
+
     sync_manager = GitHubSyncManager()
-    sync_manager.sync()
+    return sync_manager.sync()
 
 
 def cmd_oura_sync():
     """Sync Oura Ring data."""
-    try:
-        Config.validate_oura()
-    except ValueError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
-    
+    Config.validate_oura()
+
     from src.oura.sync import OuraSyncManager
-    
+
     sync_manager = OuraSyncManager()
-    sync_manager.sync()
+    return sync_manager.sync()
 
 
 def cmd_schwab_sync():
     """Sync Charles Schwab account data."""
-    try:
-        Config.validate_schwab()
-    except ValueError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+    Config.validate_schwab()
 
     from src.schwab.sync import SchwabSyncManager
 
     sync_manager = SchwabSyncManager()
-    sync_manager.sync()
+    return sync_manager.sync()
 
 
 def cmd_workflowy_sync():
     """Sync Workflowy nodes."""
-    try:
-        Config.validate_workflowy()
-    except ValueError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+    Config.validate_workflowy()
 
     from src.workflowy.sync import WorkflowySyncManager
 
-    WorkflowySyncManager().sync()
-
-
-def cmd_workflowy_analyze():
-    """Sync Workflowy and recompute monthly node activity."""
-    from src.workflowy.database import WorkflowyDatabase
-    from src.workflowy.analytics import WorkflowyAnalytics
-
-    run_analysis(
-        sync_func=cmd_workflowy_sync,
-        db_cls=WorkflowyDatabase,
-        analytics_cls=WorkflowyAnalytics,
-        service_name="Workflowy nodes",
-        analysis_method="analyze_nodes",
-        db_filename="workflowy.db",
-    )
-
-
-def cmd_schwab_analyze():
-    """Analyze Schwab monthly P&L and account snapshots from transactions."""
-    from src.schwab.database import SchwabDatabase
-    from src.schwab.analytics import SchwabAnalytics
-
-    cmd_schwab_sync()
-
-    print("Analyzing Schwab monthly P&L and account snapshots...")
-    db = SchwabDatabase()
-    db.init_tables()
-    analytics = SchwabAnalytics(db=db)
-
-    pnl_count = analytics.analyze_monthly_pnl()
-    snap_count = analytics.analyze_monthly_snapshots()
-
-    print(
-        f"Analysis complete! {pnl_count} P&L records and "
-        f"{snap_count} snapshot records written to schwab.db"
-    )
-
-
-def cmd_oura_analyze():
-    """Analyze Oura Ring daily summaries."""
-    from src.oura.database import OuraDatabase
-    from src.oura.analytics import OuraAnalytics
-
-    run_analysis(
-        sync_func=cmd_oura_sync,
-        db_cls=OuraDatabase,
-        analytics_cls=OuraAnalytics,
-        service_name="Oura Ring daily summaries",
-        analysis_method="analyze_daily_summaries",
-        db_filename="oura.db"
-    )
-
-
-def cmd_github_analyze():
-    """Analyze GitHub commit data."""
-    from src.github.database import GitHubDatabase
-    from src.github.analytics import GitHubAnalytics
-
-    run_analysis(
-        sync_func=cmd_github_sync,
-        db_cls=GitHubDatabase,
-        analytics_cls=GitHubAnalytics,
-        service_name="GitHub commits",
-        analysis_method="analyze_commits",
-        db_filename="github.db"
-    )
-
-
-def _run_optional_surfilog(operation):
-    """Skip an unconfigured source; configured sync failures must remain visible."""
-    print("\n--- Surfilog ---")
-    try:
-        Config.validate_surfilog()
-    except ValueError as error:
-        print(f"Skipping Surfilog: {error}")
-        return
-    operation()
+    return WorkflowySyncManager().sync()
 
 
 def cmd_surfilog_sync():
@@ -858,22 +134,7 @@ def cmd_surfilog_sync():
     from src.surfilog.sync import SurfilogSyncManager
 
     Config.validate_surfilog()
-    SurfilogSyncManager().sync()
-
-
-def cmd_surfilog_analyze():
-    """Refresh Surfilog and recompute all monthly surfing metrics."""
-    from src.surfilog.database import SurfilogDatabase
-    from src.surfilog.analytics import SurfilogAnalytics
-
-    run_analysis(
-        sync_func=cmd_surfilog_sync,
-        db_cls=SurfilogDatabase,
-        analytics_cls=SurfilogAnalytics,
-        service_name="Surfilog surfing sessions",
-        analysis_method="analyze_sessions",
-        db_filename="surfilog.db",
-    )
+    return SurfilogSyncManager().sync()
 
 
 def cmd_kaya_sync(csv_path=None):
@@ -887,677 +148,296 @@ def cmd_kaya_sync(csv_path=None):
         return
     count = sum(importer.sync(path) for path in exports)
     print(f"Added {count:,} new Kaya climbs.")
+    return {"climbs": count}
+
+
+def _analyze_schwab(db):
+    from src.schwab.analytics import SchwabAnalytics
+
+    analytics = SchwabAnalytics(db=db)
+    return analytics.analyze_monthly_pnl() + analytics.analyze_monthly_snapshots()
+
+
+def _status_row(conn, query):
+    return dict(conn.execute(query).fetchone() or {}) if conn is not None else {}
+
+
+def _status_export(path):
+    return {"latest_export": path.name} if path is not None else {}
+
+
+def _status_apple_health(conn):
+    from src.apple_health.importer import AppleHealthImporter
+
+    result = {"json_archives": len(AppleHealthImporter.find_json_archives())}
+    if conn is not None and conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'json_import_state'").fetchone():
+        result.update({f"workouts {state}": count for state, count in conn.execute(
+            "SELECT status, COUNT(*) FROM json_import_state GROUP BY status ORDER BY status"
+        )})
+    return result
+
+
+def _status_strong(conn):
+    from src.strong.importer import StrongImporter
+
+    result = _status_export(StrongImporter.find_latest_export())
+    if conn is not None:
+        result["source"] = "csv"
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'sync_state'").fetchone():
+            result.update(_status_row(conn, "SELECT source, last_successful_sync_at, weight_unit, timezone FROM sync_state"))
+    return result
+
+
+def _status_sync_dates(conn, query):
+    if conn is None:
+        return {}
+    return {f"{name} last synced": timestamp for name, timestamp in conn.execute(query)}
+
+
+def _strong_sync_options(parser):
+    parser.add_argument("--csv", dest="from_csv", action="store_true",
+                        help="Replace Strong history with the latest complete CSV export")
+
+
+def _kaya_options(parser):
+    parser.add_argument("csv_path", nargs="?", help="Path to a Kaya CSV export")
+
+
+def source_catalog() -> tuple[Source, ...]:
+    from src.apple_health.analytics import AppleHealthAnalytics
+    from src.apple_health.database import AppleHealthDatabase
+    from src.blog.analytics import BlogAnalytics
+    from src.blog.database import BlogDatabase
+    from src.foursquare.analytics import FoursquareAnalytics
+    from src.foursquare.database import FoursquareDatabase
+    from src.github.analytics import GitHubAnalytics
+    from src.github.database import GitHubDatabase
+    from src.hardcover.analytics import HardcoverAnalytics
+    from src.hardcover.database import HardcoverDatabase
+    from src.kaya.analytics import KayaAnalytics
+    from src.kaya.database import KayaDatabase
+    from src.letterboxd.analytics import LetterboxdAnalytics
+    from src.letterboxd.database import LetterboxdDatabase
+    from src.letterboxd.importer import LetterboxdImporter
+    from src.oura.analytics import OuraAnalytics
+    from src.oura.database import OuraDatabase
+    from src.overcast.analytics import OvercastAnalytics
+    from src.overcast.database import OvercastDatabase
+    from src.overcast.importer import OvercastImporter
+    from src.readwise.analytics import ReadwiseAnalytics
+    from src.readwise.database import ReadwiseDatabase
+    from src.schwab.database import SchwabDatabase
+    from src.strong.analytics import StrongAnalytics
+    from src.strong.database import StrongDatabase
+    from src.surfilog.analytics import SurfilogAnalytics
+    from src.surfilog.database import SurfilogDatabase
+    from src.workflowy.analytics import WorkflowyAnalytics
+    from src.workflowy.database import WorkflowyDatabase
+
+    return (
+        Source("readwise", "Readwise", ReadwiseDatabase, cmd_readwise_sync,
+               lambda db: ReadwiseAnalytics(db).analyze_archived(), Config.validate_readwise,
+               status_details=lambda conn: _status_sync_dates(
+                   conn, "SELECT entity_type, last_sync_at FROM sync_state ORDER BY entity_type")),
+        Source("foursquare", "Foursquare", FoursquareDatabase, cmd_foursquare_sync,
+               lambda db: FoursquareAnalytics(db).analyze_checkins(),
+               status_details=lambda _: {"has_token": bool(Config.FOURSQUARE_ACCESS_TOKEN)}),
+        Source("letterboxd", "Letterboxd", LetterboxdDatabase, cmd_letterboxd_sync,
+               lambda db: LetterboxdAnalytics(db).analyze_watched(),
+               status_details=lambda _: _status_export(LetterboxdImporter.find_latest_export())),
+        Source("overcast", "Overcast", OvercastDatabase, cmd_overcast_sync,
+               lambda db: OvercastAnalytics(db).analyze_podcasts(), initialize=False,
+               status_details=lambda _: _status_export(OvercastImporter.find_latest_export())),
+        Source("strong", "Strong", StrongDatabase, cmd_strong_sync,
+               lambda db: StrongAnalytics(db).analyze_workouts(), status_details=_status_strong,
+               sync_options=_strong_sync_options),
+        Source("apple-health", "Apple Health", AppleHealthDatabase, cmd_apple_health_sync,
+               lambda db: AppleHealthAnalytics(db).analyze_workouts(), status_details=_status_apple_health),
+        Source("blog", "Blog", BlogDatabase, cmd_blog_sync,
+               lambda db: BlogAnalytics(db).analyze_posts(),
+               status_details=lambda conn: {
+                   "source_url": Config.BLOG_POSTS_INDEX_URL,
+                   **_status_row(conn, """
+                       SELECT published_at AS latest_post_date, title AS latest_post
+                       FROM posts ORDER BY datetime(published_at) DESC, permalink ASC LIMIT 1
+                   """),
+               }),
+        Source("hardcover", "Hardcover", HardcoverDatabase, cmd_hardcover_sync,
+               lambda db: HardcoverAnalytics(db).analyze_books(), Config.validate_hardcover),
+        Source("github", "GitHub", GitHubDatabase, cmd_github_sync,
+               lambda db: GitHubAnalytics(db).analyze_commits(), Config.validate_github_activity),
+        Source("oura", "Oura", OuraDatabase, cmd_oura_sync,
+               lambda db: OuraAnalytics(db).analyze_daily_summaries(), Config.validate_oura,
+               optional_for_reporting=True, status_details=lambda conn: {
+                   "has_token": bool(Config.OURA_ACCESS_TOKEN),
+                   **_status_sync_dates(conn, "SELECT data_type, last_sync_date FROM sync_state ORDER BY data_type"),
+               }),
+        Source("schwab", "Charles Schwab", SchwabDatabase, cmd_schwab_sync,
+               _analyze_schwab, Config.validate_schwab,
+               status_details=lambda _: {"has_token": bool(Config.SCHWAB_ACCESS_TOKEN)}),
+        Source("workflowy", "Workflowy", WorkflowyDatabase, cmd_workflowy_sync,
+               lambda db: WorkflowyAnalytics(db).analyze_nodes(), Config.validate_workflowy,
+               status_details=lambda conn: {
+                   **_status_row(conn, "SELECT last_successful_sync_at FROM sync_state"),
+                   **_status_row(conn, "SELECT COUNT(*) FILTER (WHERE is_deleted = 0) AS active_nodes, "
+                                      "COUNT(*) FILTER (WHERE is_deleted = 1) AS tombstoned_nodes FROM nodes"),
+               }),
+        Source("surfilog", "Surfilog", SurfilogDatabase, cmd_surfilog_sync,
+               lambda db: SurfilogAnalytics(db).analyze_sessions(), Config.validate_surfilog,
+               optional_for_reporting=True, status_details=lambda conn: {
+                   **_status_row(conn, "SELECT last_successful_sync_at FROM sync_state"),
+                   **_status_row(conn, "SELECT COUNT(*) FILTER (WHERE is_excluded = 0) AS waves, "
+                                      "COUNT(*) FILTER (WHERE is_excluded = 1) AS excluded_waves FROM waves"),
+               }),
+        Source("kaya", "Kaya", KayaDatabase, cmd_kaya_sync,
+               lambda db: KayaAnalytics(db).analyze_climbs(),
+               status_details=lambda conn: _status_row(conn, "SELECT MAX(local_date) AS latest_climb FROM climbs"),
+               sync_options=_kaya_options, refresh_options=_kaya_options),
+    )
+
+
+def cmd_github_analyze():
+    next(source for source in source_catalog() if source.key == "github").refresh()
 
 
 def cmd_kaya_analyze(csv_path=None):
-    """Refresh the Kaya export when available and rebuild monthly analysis."""
-    from src.kaya.analytics import KayaAnalytics
-    from src.kaya.database import KayaDatabase
-
-    cmd_kaya_sync(csv_path)
-    if not Config.KAYA_DATABASE_PATH.exists():
-        return
-    run_analysis(
-        sync_func=None,
-        db_cls=KayaDatabase,
-        analytics_cls=KayaAnalytics,
-        service_name="Kaya bouldering activity",
-        analysis_method="analyze_climbs",
-        db_filename="kaya.db",
-    )
+    next(source for source in source_catalog() if source.key == "kaya").refresh(csv_path=csv_path)
 
 
-def cmd_sync():
-    """Sync all services."""
-    print("=== Syncing All Services ===\n")
-    
-    # Readwise
-    print("--- Readwise ---")
-    try:
-        Config.validate_readwise()
-        cmd_readwise_sync()
-    except ValueError as e:
-        print(f"Skipping Readwise: {e}\n")
-    
-    print()
-    
-    # Foursquare
-    print("--- Foursquare ---")
-    cmd_foursquare_sync()
-    
-    print()
-    
-    # Letterboxd
-    print("--- Letterboxd ---")
-    cmd_letterboxd_sync()
-    
-    print()
-    
-    # Overcast
-    print("--- Overcast ---")
-    cmd_overcast_sync()
-    
-    print()
-    
-    # Strong
-    print("--- Strong ---")
-    cmd_strong_sync()
-    
-    print()
-
-    # Apple Health
-    print("--- Apple Health ---")
-    cmd_apple_health_sync()
-
-    print()
-
-    # Blog
-    print("--- Blog ---")
-    cmd_blog_sync()
-
-    print()
-    
-    # Hardcover
-    print("--- Hardcover ---")
-    try:
-        Config.validate_hardcover()
-        cmd_hardcover_sync()
-    except ValueError as e:
-        print(f"Skipping Hardcover: {e}\n")
-    
-    print()
-    
-    # GitHub
-    print("--- GitHub ---")
-    try:
-        Config.validate_github_activity()
-        cmd_github_sync()
-    except ValueError as e:
-        print(f"Skipping GitHub: {e}\n")
-    
-    print()
-    
-    # Oura
-    print("--- Oura ---")
-    try:
-        Config.validate_oura()
-        cmd_oura_sync()
-    except ValueError as e:
-        print(f"Skipping Oura: {e}\n")
-
-    print()
-
-    # Charles Schwab
-    print("--- Charles Schwab ---")
-    try:
-        Config.validate_schwab()
-        cmd_schwab_sync()
-    except ValueError as e:
-        print(f"Skipping Charles Schwab: {e}\n")
-
-    print()
-
-    # Workflowy
-    print("--- Workflowy ---")
-    try:
-        Config.validate_workflowy()
-        cmd_workflowy_sync()
-    except ValueError as e:
-        print(f"Skipping Workflowy: {e}\n")
-
-    _run_optional_surfilog(cmd_surfilog_sync)
-    cmd_kaya_sync()
+def cmd_analyze(*, local=False):
+    return run_sources(source_catalog(), "analyze" if local else "refresh")
 
 
-def cmd_status():
-    """Show sync status for all services."""
-    print("=== Digital Footprint Status ===\n")
-    
-    # Readwise
-    print("--- Readwise ---")
-    try:
-        from src.readwise.database import ReadwiseDatabase
-        from src.readwise.sync import SyncManager
-        
-        db = ReadwiseDatabase()
-        db.init_tables()
-        sync_manager = SyncManager(db=db)
-        status = sync_manager.get_sync_status()
-        
-        for entity, count in status["database_stats"].items():
-            print(f"  {entity}: {count}")
-        for entity, state in status["sync_states"].items():
-            if state:
-                print(f"  {entity} last synced: {state['last_sync_at']}")
-            else:
-                print(f"  {entity}: never synced")
-        
-        # Analysis status
+REPORT_SOURCES = (
+    "readwise", "letterboxd", "foursquare", "overcast", "strong", "apple-health",
+    "blog", "hardcover", "github", "oura", "surfilog", "kaya",
+)
+
+
+def refresh_report_sources() -> bool:
+    sources = {source.key: source for source in source_catalog()}
+    return run_sources((sources[key] for key in REPORT_SOURCES), "refresh", reporting=True)
+
+
+def cmd_publish(*, dry_run=False, skip_sync_analysis=False, last_month=False):
+    from src.publish import Publisher
+
+    if dry_run:
+        publisher = Publisher()
+        markdown = publisher.generate_markdown(last_month=last_month)
+        preview = publisher.save_preview(markdown)
+        print(markdown)
+        print(f"Preview saved to {preview}")
+        return True
+
+    if not skip_sync_analysis and not refresh_report_sources():
+        return False
+    result = Publisher().publish(last_month=last_month)
+    print(f"Published draft: {result['url']}")
+    return True
+
+
+def cmd_backfill(*, skip_sync_analysis=False):
+    from src.publish import Publisher
+
+    if not skip_sync_analysis and not refresh_report_sources():
+        return False
+    result = Publisher().backfill()
+    print(f"Full-history data repo commit: {result['data_repo']['url']}")
+    print(f"Blog repo commit (since {result['blog_start_year_month']}): {result['blog_repo']['url']}")
+    return True
+
+
+def cmd_pipeline(*, last_month=False, skip_sync_analysis=False):
+    from src.publish import Publisher
+
+    if not skip_sync_analysis and not refresh_report_sources():
+        return False
+    result = Publisher().publish_pipeline(last_month=last_month)
+    print(f"Published draft: {result['draft']['url']}")
+    print(f"Full-history data repo commit: {result['data_repo']['url']}")
+    print(f"Blog repo commit (since {result['blog_start_year_month']}): {result['blog_repo']['url']}")
+    return True
+
+
+def cmd_status(*, sources):
+    success = True
+    for source in sources:
+        print(f"\n--- {source.name} ---")
         try:
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM analysis")
-                analysis_count = cursor.fetchone()[0]
-                cursor.execute("SELECT year_month, updated_at FROM analysis ORDER BY year_month DESC LIMIT 1")
-                latest = cursor.fetchone()
-            
-            if analysis_count > 0 and latest:
-                print(f"  analysis records: {analysis_count}")
-                print(f"  latest analysis: {latest['year_month']} (updated: {latest['updated_at']})")
-            else:
-                print(f"  analysis: no records")
-        except Exception:
-            print(f"  analysis: no records")
-    except Exception as e:
-        print(f"  Error: {e}")
-    
-    print()
-    
-    # Foursquare
-    print("--- Foursquare ---")
+            for key, value in source.status().items():
+                if value is not None:
+                    print(f"  {key}: {value}")
+        except Exception as error:
+            success = False
+            print(f"  Error: {error}")
+    return success
+
+
+def _add_source_commands(subparsers, source):
+    for suffix, operation, verb, add_options in (
+        ("sync", source.sync, "Sync", source.sync_options),
+        ("analyze", source.refresh, "Sync and analyze", source.refresh_options),
+    ):
+        command = subparsers.add_parser(f"{source.key}-{suffix}", help=f"{verb} {source.name}")
+        command.set_defaults(operation=operation)
+        if add_options:
+            add_options(command)
+        if suffix == "analyze":
+            command.add_argument("--local", dest="local_only", action="store_true",
+                                 help="Recompute from local data without syncing")
+            command.set_defaults(local_analysis=source.analyze_local)
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Collect, analyze, and publish personal activity data.")
+    commands = parser.add_subparsers(required=True)
+    sources = source_catalog()
+
+    for name, help_text, operation in (
+        ("init", "Initialize source databases", partial(run_sources, sources, "init")),
+        ("sync", "Sync configured sources", partial(run_sources, sources, "sync")),
+        ("status", "Show source database and sync status", partial(cmd_status, sources=sources)),
+    ):
+        commands.add_parser(name, help=help_text).set_defaults(operation=operation)
+
+    analyze = commands.add_parser("analyze", help="Sync and analyze configured sources")
+    analyze.add_argument("--local", action="store_true", help="Recompute from local data without syncing")
+    analyze.set_defaults(operation=cmd_analyze)
+
+    publish = commands.add_parser("publish", help="Publish the monthly draft report")
+    publish.add_argument("--dry-run", action="store_true", help="Write a preview from local data")
+    publish.add_argument("--skip-sync-analysis", action="store_true", help="Use current analysis")
+    publish.add_argument("--last-month", action="store_true", help="Select the previous calendar month")
+    publish.set_defaults(operation=cmd_publish)
+
+    backfill = commands.add_parser("backfill", help="Publish the activity data files")
+    backfill.add_argument("--skip-sync-analysis", action="store_true", help="Use current analysis")
+    backfill.set_defaults(operation=cmd_backfill)
+
+    pipeline = commands.add_parser("pipeline", help="Refresh once and publish the draft and activity files")
+    pipeline.add_argument("--last-month", action="store_true", help="Select the previous calendar month")
+    pipeline.add_argument("--skip-sync-analysis", action="store_true", help="Use current analysis")
+    pipeline.set_defaults(operation=cmd_pipeline)
+
+    for source in sources:
+        _add_source_commands(commands, source)
+
+    options = vars(parser.parse_args(argv))
+    operation = options.pop("operation")
+    local_analysis = options.pop("local_analysis", None)
+    local_only = options.pop("local_only", False)
     try:
-        from src.foursquare.sync import FoursquareSyncManager
-        
-        sync_manager = FoursquareSyncManager()
-        status = sync_manager.get_status()
-        
-        if "error" in status:
-            print(f"  Error: {status['error']}")
-        else:
-            for entity, count in status.get("database_stats", {}).items():
-                print(f"  {entity}: {count}")
-            print(f"  has_token: {status.get('has_token', False)}")
-    except Exception as e:
-        print(f"  Error: {e}")
-    
-    print()
-    
-    # Letterboxd
-    print("--- Letterboxd ---")
-    try:
-        from src.letterboxd.importer import LetterboxdImporter
-        from src.letterboxd.database import LetterboxdDatabase
-        
-        importer = LetterboxdImporter()
-        status = importer.get_status()
-        
-        if "error" in status:
-            print(f"  Error: {status['error']}")
-        else:
-            for entity, count in status.get("database_stats", {}).items():
-                print(f"  {entity}: {count}")
-            latest = status.get("latest_export")
-            if latest:
-                print(f"  latest_export: {latest.name}")
-        
-        # Analysis status
-        db = LetterboxdDatabase()
-        try:
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM analysis")
-                analysis_count = cursor.fetchone()[0]
-                cursor.execute("SELECT year_month, updated_at FROM analysis ORDER BY year_month DESC LIMIT 1")
-                latest_analysis = cursor.fetchone()
-            
-            if analysis_count > 0 and latest_analysis:
-                print(f"  analysis records: {analysis_count}")
-                print(f"  latest analysis: {latest_analysis['year_month']} (updated: {latest_analysis['updated_at']})")
-            else:
-                print(f"  analysis: no records")
-        except Exception:
-            print(f"  analysis: no records")
-    except Exception as e:
-        print(f"  Error: {e}")
-    
-    print()
-    
-    # Overcast
-    print("--- Overcast ---")
-    try:
-        from src.overcast.importer import OvercastImporter
-        
-        importer = OvercastImporter()
-        status = importer.get_status()
-        
-        for entity, count in status.get("database_stats", {}).items():
-            print(f"  {entity}: {count}")
-        latest = status.get("latest_export")
-        if latest:
-            print(f"  latest_export: {latest.name}")
-        
-        # Analysis status
-        import sqlite3
-        db_path = Config.OVERCAST_DATABASE_PATH
-        if db_path.exists():
-            conn = sqlite3.connect(str(db_path))
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            try:
-                cursor.execute("SELECT COUNT(*) FROM analysis")
-                analysis_count = cursor.fetchone()[0]
-                cursor.execute("SELECT year_month, updated_at FROM analysis ORDER BY year_month DESC LIMIT 1")
-                latest_analysis = cursor.fetchone()
-                
-                if analysis_count > 0 and latest_analysis:
-                    print(f"  analysis records: {analysis_count}")
-                    print(f"  latest analysis: {latest_analysis['year_month']} (updated: {latest_analysis['updated_at']})")
-                else:
-                    print(f"  analysis: no records")
-            except sqlite3.OperationalError:
-                print(f"  analysis: no records")
-            conn.close()
-    except Exception as e:
-        print(f"  Error: {e}")
-    
-    print()
-    
-    # Strong
-    print("--- Strong ---")
-    try:
-        from src.strong.importer import StrongImporter
-        from src.strong.database import StrongDatabase
-        
-        importer = StrongImporter()
-        status = importer.get_status()
-        
-        if "error" in status:
-            print(f"  Error: {status['error']}")
-        else:
-            state = importer.db.get_sync_state()
-            print(f"  source: {state['source'] if state else 'csv'}")
-            if state:
-                print(f"  last_successful_sync_at: {state['last_successful_sync_at']}")
-                if state.get('weight_unit'):
-                    print(f"  weight_unit: {state['weight_unit']}")
-                    print(f"  timezone: {state['timezone']}")
-            for entity, count in status.get("database_stats", {}).items():
-                print(f"  {entity}: {count}")
-            latest = status.get("latest_export")
-            if latest:
-                print(f"  latest_export: {latest.name}")
-        
-        # Analysis status
-        db = StrongDatabase()
-        if db.exists():
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
-                try:
-                    cursor.execute("SELECT COUNT(*) FROM analysis")
-                    analysis_count = cursor.fetchone()[0]
-                    cursor.execute("SELECT year_month, updated_at FROM analysis ORDER BY year_month DESC LIMIT 1")
-                    latest_analysis = cursor.fetchone()
-                    
-                    if analysis_count > 0 and latest_analysis:
-                        print(f"  analysis records: {analysis_count}")
-                        print(f"  latest analysis: {latest_analysis['year_month']} (updated: {latest_analysis['updated_at']})")
-                    else:
-                        print(f"  analysis: no records")
-                except Exception:
-                    print(f"  analysis: no records")
-    except Exception as e:
-        print(f"  Error: {e}")
-    
-    print()
-
-    # Apple Health
-    print("--- Apple Health ---")
-    try:
-        from src.apple_health.importer import AppleHealthImporter
-        from src.apple_health.database import AppleHealthDatabase
-
-        importer = AppleHealthImporter()
-        status = importer.get_status()
-
-        if "error" in status:
-            print(f"  Error: {status['error']}")
-        else:
-            for entity, count in status.get("database_stats", {}).items():
-                print(f"  {entity}: {count}")
-            print(f"  json_archives: {status.get('archive_count', 0)}")
-
-        db = AppleHealthDatabase()
-        if db.exists():
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
-                try:
-                    cursor.execute("SELECT COUNT(*) FROM analysis")
-                    analysis_count = cursor.fetchone()[0]
-                    cursor.execute("SELECT year_month, updated_at FROM analysis ORDER BY year_month DESC LIMIT 1")
-                    latest_analysis = cursor.fetchone()
-
-                    if analysis_count > 0 and latest_analysis:
-                        print(f"  analysis records: {analysis_count}")
-                        print(f"  latest analysis: {latest_analysis['year_month']} (updated: {latest_analysis['updated_at']})")
-                    else:
-                        print("  analysis: no records")
-                except Exception:
-                    print("  analysis: no records")
-    except Exception as e:
-        print(f"  Error: {e}")
-
-    print()
-
-    # Blog
-    print("--- Blog ---")
-    try:
-        from src.blog.database import BlogDatabase
-        from src.blog.sync import BlogSyncManager
-
-        sync_manager = BlogSyncManager()
-        status = sync_manager.get_status()
-
-        for entity, count in status.get("database_stats", {}).items():
-            print(f"  {entity}: {count}")
-        print(f"  source_url: {status.get('source_url')}")
-        latest_post = status.get("latest_post")
-        if latest_post:
-            print(f"  latest post: {latest_post['published_at']} — {latest_post['title']}")
-
-        db = BlogDatabase()
-        if db.exists():
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
-                try:
-                    cursor.execute("SELECT COUNT(*) FROM analysis")
-                    analysis_count = cursor.fetchone()[0]
-                    cursor.execute("SELECT year_month, updated_at FROM analysis ORDER BY year_month DESC LIMIT 1")
-                    latest_analysis = cursor.fetchone()
-
-                    if analysis_count > 0 and latest_analysis:
-                        print(f"  analysis records: {analysis_count}")
-                        print(f"  latest analysis: {latest_analysis['year_month']} (updated: {latest_analysis['updated_at']})")
-                    else:
-                        print("  analysis: no records")
-                except Exception:
-                    print("  analysis: no records")
-    except Exception as e:
-        print(f"  Error: {e}")
-
-    print()
-    
-    # Hardcover
-    print("--- Hardcover ---")
-    try:
-        from src.hardcover.database import HardcoverDatabase
-        
-        db = HardcoverDatabase()
-        if db.exists():
-            stats = db.get_stats()
-            for entity, count in stats.items():
-                print(f"  {entity}: {count}")
-            
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
-                try:
-                    cursor.execute("SELECT COUNT(*) FROM analysis")
-                    analysis_count = cursor.fetchone()[0]
-                    cursor.execute("SELECT year_month, updated_at FROM analysis ORDER BY year_month DESC LIMIT 1")
-                    latest_analysis = cursor.fetchone()
-                    
-                    if analysis_count > 0 and latest_analysis:
-                        print(f"  analysis records: {analysis_count}")
-                        print(f"  latest analysis: {latest_analysis['year_month']} (updated: {latest_analysis['updated_at']})")
-                    else:
-                        print(f"  analysis: no records")
-                except Exception:
-                    print(f"  analysis: no records")
-        else:
-            print("  not initialized")
-    except Exception as e:
-        print(f"  Error: {e}")
-    
-    print()
-    
-    # GitHub
-    print("--- GitHub ---")
-    try:
-        from src.github.database import GitHubDatabase
-        
-        db = GitHubDatabase()
-        if db.exists():
-            stats = db.get_stats()
-            for entity, count in stats.items():
-                print(f"  {entity}: {count}")
-            
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
-                try:
-                    cursor.execute("SELECT COUNT(*) FROM analysis")
-                    analysis_count = cursor.fetchone()[0]
-                    cursor.execute("SELECT year_month, updated_at FROM analysis ORDER BY year_month DESC LIMIT 1")
-                    latest_analysis = cursor.fetchone()
-                    
-                    if analysis_count > 0 and latest_analysis:
-                        print(f"  analysis records: {analysis_count}")
-                        print(f"  latest analysis: {latest_analysis['year_month']} (updated: {latest_analysis['updated_at']})")
-                    else:
-                        print(f"  analysis: no records")
-                except Exception:
-                    print(f"  analysis: no records")
-        else:
-            print("  not initialized")
-    except Exception as e:
-        print(f"  Error: {e}")
-    
-    print()
-    
-    # Oura
-    print("--- Oura ---")
-    try:
-        from src.oura.sync import OuraSyncManager
-        
-        sync_manager = OuraSyncManager()
-        status = sync_manager.get_status()
-        
-        if "error" in status:
-            print(f"  Error: {status['error']}")
-        else:
-            for entity, count in status.get("database_stats", {}).items():
-                print(f"  {entity}: {count}")
-            print(f"  has_token: {status.get('has_token', False)}")
-            sync_dates = status.get("sync_dates", {})
-            if sync_dates:
-                for dtype, last_date in sync_dates.items():
-                    print(f"  {dtype} last synced: {last_date}")
-    except Exception as e:
-        print(f"  Error: {e}")
-
-    print()
-
-    # Charles Schwab
-    print("--- Charles Schwab ---")
-    try:
-        from src.schwab.sync import SchwabSyncManager
-
-        sync_manager = SchwabSyncManager()
-        status = sync_manager.get_status()
-
-        if "error" in status:
-            print(f"  Error: {status['error']}")
-        else:
-            for entity, count in status.get("database_stats", {}).items():
-                print(f"  {entity}: {count}")
-            print(f"  has_token: {status.get('has_token', False)}")
-    except Exception as e:
-        print(f"  Error: {e}")
-
-    print()
-
-    # Workflowy
-    print("--- Workflowy ---")
-    try:
-        from src.workflowy.sync import WorkflowySyncManager
-
-        status = WorkflowySyncManager().get_status()
-        print(f"  active nodes: {status['active_nodes']}")
-        print(f"  tombstoned nodes: {status['tombstoned_nodes']}")
-        state = status["sync_state"]
-        if state and state["last_successful_sync_at"]:
-            print(f"  last synced: {state['last_successful_sync_at']}")
-        else:
-            print("  last synced: never")
-    except Exception as e:
-        print(f"  Error: {e}")
-
-    print("\n--- Surfilog ---")
-    try:
-        from src.surfilog.sync import SurfilogSyncManager
-        for key, value in SurfilogSyncManager().get_status().items():
-            print(f"  {key}: {value}")
+        if local_only:
+            if options.get("csv_path") is not None:
+                parser.error("a CSV path requires a sync and cannot be used with --local")
+            local_analysis()
+            return 0
+        return int(operation(**options) is False)
     except Exception as error:
-        print(f"  Error: {error}")
-
-
-    print("\n--- Kaya ---")
-    try:
-        from src.kaya.database import KayaDatabase
-
-        db = KayaDatabase()
-        rows = []
-        if db.exists():
-            rows = db.fetch_rows(
-                "SELECT COUNT(*) AS climbs, MAX(local_date) AS latest_climb FROM climbs",
-                required_tables=("climbs",),
-            )
-        if rows and rows[0]["climbs"]:
-            print(f"  climbs: {rows[0]['climbs']:,}")
-            print(f"  latest climb: {rows[0]['latest_climb']}")
-        else:
-            print("  no climbs imported")
-    except Exception as error:
-        print(f"  Error: {error}")
-
-
-def main():
-    """Main entry point."""
-    parser = argparse.ArgumentParser(
-        description="Digital Footprint Dump - Export your digital footprints to local SQLite databases.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__
-    )
-    
-    subparsers = parser.add_subparsers(dest="command", help="Available commands")
-    
-    # Simple commands (no arguments)
-    subparsers.add_parser("init", help="Initialize all databases")
-    subparsers.add_parser("sync", help="Sync all services")
-    subparsers.add_parser("analyze", help="Analyze all sources")
-    subparsers.add_parser("readwise-sync", help="Sync Readwise only")
-    subparsers.add_parser("readwise-analyze", help="Analyze Readwise archive")
-    subparsers.add_parser("foursquare-sync", help="Sync Foursquare only")
-    subparsers.add_parser("foursquare-analyze", help="Analyze Foursquare checkins")
-    subparsers.add_parser("letterboxd-sync", help="Import Letterboxd data")
-    subparsers.add_parser("letterboxd-analyze", help="Analyze Letterboxd movies")
-    subparsers.add_parser("overcast-sync", help="Import Overcast data")
-    subparsers.add_parser("overcast-analyze", help="Analyze Overcast podcasts")
-    strong_sync_parser = subparsers.add_parser("strong-sync", help="Sync Strong workout data")
-    strong_sync_parser.add_argument(
-        "--csv", action="store_true", help="Replace Strong history with the latest complete CSV export"
-    )
-    subparsers.add_parser("strong-analyze", help="Analyze Strong workouts")
-    subparsers.add_parser("apple-health-sync", help="Import Apple Health workout data")
-    subparsers.add_parser("apple-health-analyze", help="Analyze Apple Health workouts")
-    subparsers.add_parser("blog-sync", help="Sync public blog posts")
-    subparsers.add_parser("blog-analyze", help="Analyze published blog posts")
-    subparsers.add_parser("hardcover-sync", help="Sync Hardcover books")
-    subparsers.add_parser("hardcover-analyze", help="Analyze Hardcover books")
-    subparsers.add_parser("github-sync", help="Sync GitHub commits")
-    subparsers.add_parser("github-analyze", help="Analyze GitHub activity")
-    subparsers.add_parser("oura-sync", help="Sync Oura Ring data")
-    subparsers.add_parser("oura-analyze", help="Analyze Oura Ring daily summaries")
-    subparsers.add_parser("schwab-sync", help="Sync Charles Schwab accounts")
-    subparsers.add_parser("schwab-analyze", help="Analyze Schwab monthly P&L")
-    subparsers.add_parser("workflowy-sync", help="Sync Workflowy nodes")
-    subparsers.add_parser("workflowy-analyze", help="Analyze monthly Workflowy node activity")
-    subparsers.add_parser("surfilog-sync", help="Sync Surfilog sessions and individual waves")
-    subparsers.add_parser("surfilog-analyze", help="Sync and analyze monthly surfing metrics")
-    kaya_sync_parser = subparsers.add_parser("kaya-sync", help="Import Kaya climbs from CSV")
-    kaya_analyze_parser = subparsers.add_parser(
-        "kaya-analyze", help="Import Kaya climbs and rebuild monthly bouldering metrics"
-    )
-    for kaya_parser in (kaya_sync_parser, kaya_analyze_parser):
-        kaya_parser.add_argument("csv_path", nargs="?", help="Path to a Kaya CSV export")
-    subparsers.add_parser("status", help="Show sync status")
-    subparsers.add_parser("backfill", help="Commit activity data files to configured repos")
-    
-    # Publish command with --dry-run flag
-    publish_parser = subparsers.add_parser("publish", help="Publish monthly summary to data repo")
-    publish_parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Generate markdown from current analysis data without syncing or publishing"
-    )
-    publish_parser.add_argument(
-        "--skip-sync-analysis",
-        action="store_true",
-        help="Publish using the current analysis data without rerunning sync or analysis"
-    )
-    publish_parser.add_argument(
-        "--last-month",
-        action="store_true",
-        help="Publish the report for the previous calendar month instead of the latest available month"
-    )
-    
-    args = parser.parse_args()
-    
-    if args.command is None:
-        parser.print_help()
-        sys.exit(1)
-    
-    commands = {
-        "init": cmd_init,
-        "sync": cmd_sync,
-        "analyze": cmd_analyze,
-        "readwise-sync": cmd_readwise_sync,
-        "readwise-analyze": cmd_readwise_analyze,
-        "foursquare-sync": cmd_foursquare_sync,
-        "foursquare-analyze": cmd_foursquare_analyze,
-        "letterboxd-sync": cmd_letterboxd_sync,
-        "letterboxd-analyze": cmd_letterboxd_analyze,
-        "overcast-sync": cmd_overcast_sync,
-        "overcast-analyze": cmd_overcast_analyze,
-        "strong-sync": cmd_strong_sync,
-        "strong-analyze": cmd_strong_analyze,
-        "apple-health-sync": cmd_apple_health_sync,
-        "apple-health-analyze": cmd_apple_health_analyze,
-        "blog-sync": cmd_blog_sync,
-        "blog-analyze": cmd_blog_analyze,
-        "hardcover-sync": cmd_hardcover_sync,
-        "hardcover-analyze": cmd_hardcover_analyze,
-        "github-sync": cmd_github_sync,
-        "github-analyze": cmd_github_analyze,
-        "oura-sync": cmd_oura_sync,
-        "oura-analyze": cmd_oura_analyze,
-        "schwab-sync": cmd_schwab_sync,
-        "schwab-analyze": cmd_schwab_analyze,
-        "workflowy-sync": cmd_workflowy_sync,
-        "workflowy-analyze": cmd_workflowy_analyze,
-        "surfilog-sync": cmd_surfilog_sync,
-        "surfilog-analyze": cmd_surfilog_analyze,
-        "kaya-sync": cmd_kaya_sync,
-        "kaya-analyze": cmd_kaya_analyze,
-        "status": cmd_status,
-    }
-    
-    if args.command == "publish":
-        cmd_publish(
-            dry_run=args.dry_run,
-            skip_sync_analysis=args.skip_sync_analysis,
-            last_month=args.last_month
-        )
-    elif args.command == "backfill":
-        cmd_backfill()
-    elif args.command == "strong-sync":
-        cmd_strong_sync(from_csv=args.csv)
-    elif args.command in ("kaya-sync", "kaya-analyze"):
-        commands[args.command](args.csv_path)
-    elif args.command in commands:
-        commands[args.command]()
-    else:
-        print(f"Unknown command: {args.command}")
-        sys.exit(1)
+        print(f"Error: {error}")
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

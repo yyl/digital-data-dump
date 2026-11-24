@@ -11,6 +11,10 @@ import requests
 from ..config import Config
 
 
+class FoursquareAPIError(RuntimeError):
+    """Foursquare could not complete a required operation."""
+
+
 class FoursquareAPIClient:
     """Client for Foursquare APIs with OAuth2 support."""
     
@@ -208,7 +212,7 @@ class FoursquareAPIClient:
         """Fetch user checkins with pagination.
         
         Args:
-            after_timestamp: Only fetch checkins after this timestamp
+            after_timestamp: Re-fetch checkins on the cursor second and later
             limit: Max checkins per request
             
         Returns:
@@ -234,18 +238,22 @@ class FoursquareAPIClient:
                 params
             )
             
-            if not data:
-                break
-            
-            items = data.get("response", {}).get("checkins", {}).get("items", [])
+            if data is None:
+                raise FoursquareAPIError("Could not fetch a complete page of Foursquare checkins.")
+
+            items = data.get("response", {}).get("checkins", {}).get("items")
+            if not isinstance(items, list):
+                raise FoursquareAPIError("Foursquare returned an invalid checkin page.")
             if not items:
                 break
             
             # Filter by timestamp and collect
             for checkin in items:
-                created_at = checkin.get("createdAt", 0)
-                if after_timestamp > 0 and created_at <= after_timestamp:
-                    # Reached already-pulled checkins, stop
+                created_at = checkin.get("createdAt")
+                if type(created_at) is not int:
+                    raise FoursquareAPIError("A Foursquare checkin has an invalid timestamp.")
+                if after_timestamp > 0 and created_at < after_timestamp:
+                    # The cursor second can contain more than one checkin.
                     return all_checkins
                 all_checkins.append(checkin)
             

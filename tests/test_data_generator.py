@@ -3,7 +3,9 @@
 from unittest.mock import MagicMock
 
 import pytest
-from src.publish.data_generator import DataGenerator, _to_yaml
+from src.blog.analytics import BlogAnalytics
+from src.blog.database import BlogDatabase
+from src.publish.data_generator import ActivitySource, DataGenerator, _to_yaml
 
 
 class TestToYaml:
@@ -41,7 +43,7 @@ class TestToYaml:
     def test_empty_records(self):
         """Test with empty records list."""
         result = _to_yaml([], "Empty")
-        assert result == "# Empty\n"
+        assert result == "# Empty\n[]\n"
     
     def test_matches_reference_format(self):
         """Test that output matches the reference travel.yaml format."""
@@ -177,7 +179,6 @@ class TestDataGeneratorFiltering:
             foursquare_db=MagicMock(),
             letterboxd_db=MagicMock(),
             overcast_db=MagicMock(),
-            strong_db=MagicMock(),
             apple_health_db=MagicMock(),
             blog_db=MagicMock(),
             hardcover_db=MagicMock(),
@@ -203,3 +204,24 @@ class TestDataGeneratorFiltering:
         assert '2027-03' not in files['data/activity/reading.yaml']
         assert '2027-04' in files['data/activity/reading.yaml']
         assert '2027-05' in files['data/activity/reading.yaml']
+
+
+def test_registered_activity_export_clears_only_available_empty_windows(tmp_path, monkeypatch):
+    db = BlogDatabase(str(tmp_path / "fixture.db"))
+    read = MagicMock(return_value=[])
+    generator = DataGenerator()
+    monkeypatch.setattr(generator, "activity_sources", lambda: (
+        ActivitySource("fixture", "Fixture activity", db, read),
+    ))
+    assert generator.generate_data_files() == {}
+
+    db.init_tables()
+    BlogAnalytics(db).analyze_posts()
+    assert generator.generate_data_files() == {"data/activity/fixture.yaml": "# Fixture activity\n[]\n"}
+
+    read.return_value = [{"month": "2026-03", "count": 2}]
+    snapshot = generator.load_activity_data()
+    assert '- month: "2026-03"' in generator.render_data_files(snapshot)["data/activity/fixture.yaml"]
+    assert generator.render_data_files(snapshot, min_year_month="2026-04") == {
+        "data/activity/fixture.yaml": "# Fixture activity\n[]\n",
+    }

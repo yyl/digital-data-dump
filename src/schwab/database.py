@@ -13,6 +13,10 @@ from .models import RAW_INDEXES, RAW_TABLES
 class SchwabDatabase(BaseDatabase):
     """Manages SQLite database for Charles Schwab account snapshots and transactions."""
 
+    source_name = "Charles Schwab"
+    raw_table_names = frozenset({"account_snapshots", "transactions", "transaction_items", "sync_state"})
+    analysis_table_names = frozenset({"monthly_pnl", "monthly_account_snapshots"})
+
     def __init__(self, db_path: Optional[str] = None):
         """Initialize database manager."""
         super().__init__(db_path or str(Config.SCHWAB_DATABASE_PATH))

@@ -1,27 +1,26 @@
 """Generator for Hugo-compatible YAML data files from analysis databases."""
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date
-import logging
 from typing import Dict, List, Optional, Any
 
 from ..readwise.database import ReadwiseDatabase
 from ..foursquare.database import FoursquareDatabase
 from ..letterboxd.database import LetterboxdDatabase
 from ..overcast.database import OvercastDatabase
-from ..strong.database import StrongDatabase
+from ..database import BaseDatabase
 from ..apple_health.database import AppleHealthDatabase
 from ..blog.database import BlogDatabase
 from ..hardcover.database import HardcoverDatabase
 from ..github.database import GitHubDatabase
 from ..github.models import LINE_CHANGE_METRICS, VISIBILITY_METRICS
 from ..oura.database import OuraDatabase
+from ..oura.reporting import monthly_scores
 from ..surfilog.database import SurfilogDatabase
 from ..surfilog.models import METRICS as SURFILOG_METRICS
 from ..kaya.analytics import COUNT_METRICS as KAYA_COUNT_METRICS
 from ..kaya.database import KayaDatabase
-
-logger = logging.getLogger(__name__)
-
 
 def _year_month_to_date(year_month: str) -> date:
     """Convert a YYYY-MM string to the first day of that month."""
@@ -44,6 +43,9 @@ def _to_yaml(records: List[Dict[str, Any]], comment: str) -> str:
     Returns:
         YAML-formatted string.
     """
+    if not records:
+        return f"# {comment}\n[]\n"
+
     lines = [f"# {comment}"]
     
     for record in records:
@@ -66,6 +68,14 @@ def _to_yaml(records: List[Dict[str, Any]], comment: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+@dataclass(frozen=True)
+class ActivitySource:
+    filename: str
+    comment: str
+    database: BaseDatabase
+    read: Callable[[], list[dict]]
+
+
 class DataGenerator:
     """Generates Hugo data files from analysis databases."""
     
@@ -75,7 +85,6 @@ class DataGenerator:
         foursquare_db: Optional[FoursquareDatabase] = None,
         letterboxd_db: Optional[LetterboxdDatabase] = None,
         overcast_db: Optional[OvercastDatabase] = None,
-        strong_db: Optional[StrongDatabase] = None,
         apple_health_db: Optional[AppleHealthDatabase] = None,
         blog_db: Optional[BlogDatabase] = None,
         hardcover_db: Optional[HardcoverDatabase] = None,
@@ -91,7 +100,6 @@ class DataGenerator:
             foursquare_db: Foursquare database manager.
             letterboxd_db: Letterboxd database manager.
             overcast_db: Overcast database manager.
-            strong_db: Strong database manager.
             apple_health_db: Apple Health database manager.
             blog_db: Blog database manager.
             hardcover_db: Hardcover database manager.
@@ -104,7 +112,6 @@ class DataGenerator:
         self.foursquare_db = foursquare_db or FoursquareDatabase()
         self.letterboxd_db = letterboxd_db or LetterboxdDatabase()
         self.overcast_db = overcast_db or OvercastDatabase()
-        self.strong_db = strong_db or StrongDatabase()
         self.apple_health_db = apple_health_db or AppleHealthDatabase()
         self.blog_db = blog_db or BlogDatabase()
         self.hardcover_db = hardcover_db or HardcoverDatabase()
@@ -199,20 +206,6 @@ class DataGenerator:
             for row in self.overcast_db.fetch_rows(query)
         ]
 
-    def _get_all_strong(self) -> List[Dict[str, Any]]:
-        """Get all Strong analysis records, oldest first."""
-        query = """
-        SELECT year_month, workouts, total_minutes, unique_exercises, total_sets
-        FROM analysis
-        ORDER BY year_month ASC
-        """
-        return [
-            {'month': row['year_month'], 'workouts': row['workouts'],
-             'total_minutes': row['total_minutes'], 'unique_exercises': row['unique_exercises'],
-             'total_sets': row['total_sets']}
-            for row in self.strong_db.fetch_rows(query)
-        ]
-
     def _get_all_apple_health(self) -> List[Dict[str, Any]]:
         """Get all Apple Health analysis records, oldest first."""
         query = """
@@ -274,27 +267,7 @@ class DataGenerator:
         return records
 
     def _get_all_oura(self) -> List[Dict[str, Any]]:
-        """Get all Oura analysis records pivoted to one row per month."""
-        query = """
-        SELECT year_month, source_table, metric, median_value, avg_value
-        FROM analysis
-        WHERE source_table IN ('daily_sleep', 'daily_readiness')
-          AND metric = 'score'
-        ORDER BY year_month ASC, source_table ASC
-        """
-        monthly: dict = {}
-        for row in self.oura_db.fetch_rows(query):
-            ym = row['year_month']
-            if ym not in monthly:
-                monthly[ym] = {'month': ym}
-            table = row['source_table']
-            if table == 'daily_sleep':
-                monthly[ym]['median_sleep_score'] = row['median_value']
-                monthly[ym]['avg_sleep_score'] = round(row['avg_value'], 2) if row['avg_value'] is not None else None
-            elif table == 'daily_readiness':
-                monthly[ym]['median_readiness_score'] = row['median_value']
-                monthly[ym]['avg_readiness_score'] = round(row['avg_value'], 2) if row['avg_value'] is not None else None
-        return list(monthly.values())
+        return [{"month": row.pop("year_month"), **row} for row in monthly_scores(self.oura_db)]
 
     def _get_all_surfilog(self) -> List[Dict[str, Any]]:
         """Publish monthly aggregates; raw GPS and wave records stay in SQLite."""
@@ -313,146 +286,50 @@ class DataGenerator:
             records.append(record)
         return records
 
+    def activity_sources(self) -> tuple[ActivitySource, ...]:
+        return (
+            ActivitySource("reading", "Monthly reading activity data", self.readwise_db, self._get_all_readwise),
+            ActivitySource("travel", "Monthly travel activity data", self.foursquare_db, self._get_all_foursquare),
+            ActivitySource("movies", "Monthly movies activity data", self.letterboxd_db, self._get_all_letterboxd),
+            ActivitySource("podcasts", "Monthly podcasts activity data", self.overcast_db, self._get_all_overcast),
+            ActivitySource("workouts", "Monthly workout activity data", self.apple_health_db, self._get_all_apple_health),
+            ActivitySource("writing", "Monthly writing activity data", self.blog_db, self._get_all_blog),
+            ActivitySource("books", "Monthly books activity data", self.hardcover_db, self._get_all_hardcover),
+            ActivitySource("code", "Monthly code activity data", self.github_activity_db, self._get_all_github),
+            ActivitySource("sleep", "Monthly sleep and readiness data", self.oura_db, self._get_all_oura),
+            ActivitySource("surfing", "Monthly surfing activity data", self.surfilog_db, self._get_all_surfilog),
+            ActivitySource("bouldering", "Monthly bouldering activity data", self.kaya_db, self._get_all_kaya),
+        )
+
+    def load_activity_data(self) -> dict[str, tuple[str, list[dict]]]:
+        """Load available monthly records, including sources with an empty analysis."""
+        activity = {}
+        for source in self.activity_sources():
+            records = source.read()
+            if not records:
+                with source.database.read_connection() as conn:
+                    if conn is None:
+                        continue
+            activity[f"data/activity/{source.filename}.yaml"] = (
+                source.comment, records,
+            )
+        return activity
+
+    def render_data_files(
+        self,
+        activity: dict[str, tuple[str, list[dict]]],
+        min_year_month: Optional[str] = None,
+        max_year_month: Optional[str] = None,
+    ) -> Dict[str, str]:
+        """Render a window of available data, with explicit empty files clearing old exports."""
+        return {
+            path: _to_yaml(self._limit_records_by_month(records, min_year_month, max_year_month), comment)
+            for path, (comment, records) in activity.items()
+        }
+
     def generate_data_files(
         self,
         min_year_month: Optional[str] = None,
         max_year_month: Optional[str] = None,
     ) -> Dict[str, str]:
-        """Generate all Hugo data files.
-        
-        Args:
-            min_year_month: Optional inclusive YYYY-MM lower bound for generated records.
-            max_year_month: Optional inclusive YYYY-MM cutoff for generated records.
-
-        Returns:
-            Dictionary mapping repo file paths to YAML content strings.
-            Example: {"data/activity/reading.yaml": "# Monthly reading..."}
-        """
-        files = {}
-        
-        # Reading (Readwise)
-        reading_records = self._limit_records_by_month(
-            self._get_all_readwise(),
-            min_year_month=min_year_month,
-            max_year_month=max_year_month,
-        )
-        if reading_records:
-            files["data/activity/reading.yaml"] = _to_yaml(
-                reading_records, "Monthly reading activity data"
-            )
-            logger.info(f"Generated reading.yaml with {len(reading_records)} records")
-        
-        # Travel (Foursquare)
-        travel_records = self._limit_records_by_month(
-            self._get_all_foursquare(),
-            min_year_month=min_year_month,
-            max_year_month=max_year_month,
-        )
-        if travel_records:
-            files["data/activity/travel.yaml"] = _to_yaml(
-                travel_records, "Monthly travel activity data"
-            )
-            logger.info(f"Generated travel.yaml with {len(travel_records)} records")
-        
-        # Movies (Letterboxd)
-        movies_records = self._limit_records_by_month(
-            self._get_all_letterboxd(),
-            min_year_month=min_year_month,
-            max_year_month=max_year_month,
-        )
-        if movies_records:
-            files["data/activity/movies.yaml"] = _to_yaml(
-                movies_records, "Monthly movies activity data"
-            )
-            logger.info(f"Generated movies.yaml with {len(movies_records)} records")
-        
-        # Podcasts (Overcast)
-        podcasts_records = self._limit_records_by_month(
-            self._get_all_overcast(),
-            min_year_month=min_year_month,
-            max_year_month=max_year_month,
-        )
-        if podcasts_records:
-            files["data/activity/podcasts.yaml"] = _to_yaml(
-                podcasts_records, "Monthly podcasts activity data"
-            )
-            logger.info(f"Generated podcasts.yaml with {len(podcasts_records)} records")
-        
-        # Workouts (Apple Health)
-        workouts_records = self._limit_records_by_month(
-            self._get_all_apple_health(),
-            min_year_month=min_year_month,
-            max_year_month=max_year_month,
-        )
-        if workouts_records:
-            files["data/activity/workouts.yaml"] = _to_yaml(
-                workouts_records, "Monthly workout activity data"
-            )
-            logger.info(f"Generated workouts.yaml with {len(workouts_records)} records")
-
-        # Writing (Blog)
-        writing_records = self._limit_records_by_month(
-            self._get_all_blog(),
-            min_year_month=min_year_month,
-            max_year_month=max_year_month,
-        )
-        if writing_records:
-            files["data/activity/writing.yaml"] = _to_yaml(
-                writing_records, "Monthly writing activity data"
-            )
-            logger.info(f"Generated writing.yaml with {len(writing_records)} records")
-        
-        # Books (Hardcover)
-        books_records = self._limit_records_by_month(
-            self._get_all_hardcover(),
-            min_year_month=min_year_month,
-            max_year_month=max_year_month,
-        )
-        if books_records:
-            files["data/activity/books.yaml"] = _to_yaml(
-                books_records, "Monthly books activity data"
-            )
-            logger.info(f"Generated books.yaml with {len(books_records)} records")
-        
-        # Code (GitHub)
-        code_records = self._limit_records_by_month(
-            self._get_all_github(),
-            min_year_month=min_year_month,
-            max_year_month=max_year_month,
-        )
-        if code_records:
-            files["data/activity/code.yaml"] = _to_yaml(
-                code_records, "Monthly code activity data"
-            )
-            logger.info(f"Generated code.yaml with {len(code_records)} records")
-        
-        # Sleep & Readiness (Oura)
-        sleep_records = self._limit_records_by_month(
-            self._get_all_oura(),
-            min_year_month=min_year_month,
-            max_year_month=max_year_month,
-        )
-        if sleep_records:
-            files["data/activity/sleep.yaml"] = _to_yaml(
-                sleep_records, "Monthly sleep and readiness data"
-            )
-            logger.info(f"Generated sleep.yaml with {len(sleep_records)} records")
-        
-        surfing_records = self._limit_records_by_month(
-            self._get_all_surfilog(), min_year_month, max_year_month,
-        )
-        if surfing_records:
-            files["data/activity/surfing.yaml"] = _to_yaml(
-                surfing_records, "Monthly surfing activity data"
-            )
-
-        bouldering_records = self._limit_records_by_month(
-            self._get_all_kaya(), min_year_month, max_year_month,
-        )
-        if bouldering_records:
-            files["data/activity/bouldering.yaml"] = _to_yaml(
-                bouldering_records, "Monthly bouldering activity data"
-            )
-
-        logger.info(f"Generated {len(files)} data files total")
-        return files
+        return self.render_data_files(self.load_activity_data(), min_year_month, max_year_month)

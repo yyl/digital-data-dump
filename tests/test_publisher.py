@@ -87,8 +87,8 @@ class TestPublisher(unittest.TestCase):
         self.assertEqual(kwargs['required_tables'], ('analysis',))
 
     def test_analysis_failures_propagate_for_every_source(self):
-        for source in ('readwise', 'foursquare', 'letterboxd', 'overcast', 'strong',
-                       'apple_health', 'blog', 'hardcover', 'github', 'oura', 'surfilog'):
+        for source in ('readwise', 'foursquare', 'letterboxd', 'overcast', 'apple_health',
+                       'blog', 'hardcover', 'github', 'oura', 'surfilog', 'kaya'):
             with self.subTest(source=source):
                 db_name = 'github_activity' if source == 'github' else source
                 db = getattr(self, f'mock_{db_name}_db')
@@ -102,8 +102,8 @@ class TestPublisher(unittest.TestCase):
         self.assertEqual(self.publisher._get_foursquare_analysis('2023-01'), row)
 
     def test_unavailable_analysis_returns_none_for_every_source(self):
-        for source in ('readwise', 'foursquare', 'letterboxd', 'overcast', 'strong',
-                       'apple_health', 'blog', 'hardcover', 'github', 'oura', 'surfilog'):
+        for source in ('readwise', 'foursquare', 'letterboxd', 'overcast', 'apple_health',
+                       'blog', 'hardcover', 'github', 'oura', 'surfilog', 'kaya'):
             with self.subTest(source=source):
                 db_name = 'github_activity' if source == 'github' else source
                 getattr(self, f'mock_{db_name}_db').fetch_rows.return_value = []
@@ -247,7 +247,7 @@ class TestPublisher(unittest.TestCase):
         self.publisher.data_generator = MagicMock()
         full_history_files = {"data/activity/reading.yaml": "# full\n- month: \"2028-01\"\n"}
         capped_files = {"data/activity/reading.yaml": "# capped\n- month: \"2027-04\"\n"}
-        self.publisher.data_generator.generate_data_files.side_effect = [
+        self.publisher.data_generator.render_data_files.side_effect = [
             full_history_files,
             capped_files,
         ]
@@ -277,9 +277,11 @@ class TestPublisher(unittest.TestCase):
         result = self.publisher.backfill()
 
         self.assertEqual(
-            self.publisher.data_generator.generate_data_files.call_args_list,
-            [unittest.mock.call(), unittest.mock.call(min_year_month="2027-04")],
+            self.publisher.data_generator.render_data_files.call_args_list,
+            [unittest.mock.call(self.publisher.data_generator.load_activity_data.return_value),
+             unittest.mock.call(self.publisher.data_generator.load_activity_data.return_value, min_year_month="2027-04")],
         )
+        self.publisher.data_generator.load_activity_data.assert_called_once_with()
         self.publisher._build_github_client.assert_called_once_with(
             repo_owner="yyl",
             repo_name="digital-data-vault",
@@ -296,3 +298,27 @@ class TestPublisher(unittest.TestCase):
         self.assertEqual(result["data_repo"]["url"], "https://example.com/data")
         self.assertEqual(result["blog_repo"]["url"], "https://example.com/blog")
         self.assertEqual(result["blog_start_year_month"], "2027-04")
+
+    def test_pipeline_does_not_deliver_until_both_activity_windows_render(self):
+        self.publisher._prepare_draft = MagicMock(return_value=({"posts/report.md": "Draft"}, "Draft"))
+        self.publisher._build_github_client = MagicMock()
+        self.publisher.data_generator = MagicMock()
+        self.publisher.data_generator.render_data_files.side_effect = [
+            {"data/activity/reading.yaml": "Full history"}, ValueError("Rendering failed"),
+        ]
+        with self.assertRaisesRegex(ValueError, "Rendering failed"):
+            self.publisher.publish_pipeline(last_month=True)
+        self.publisher._build_github_client.assert_not_called()
+
+    def test_registered_report_source_supplies_month_tags_and_section(self):
+        from src.publish.markdown_generator import ReportSection
+        from src.publish.publisher import ReportSource
+
+        section = ReportSection("fixture", "fixture", 0, lambda row: f"## Count: {row['count']}")
+        self.publisher.report_sources = lambda: (
+            ReportSource(section, lambda: ["2026-10"], lambda month: {"count": 2} if month == "2026-10" else None),
+        )
+        markdown = self.publisher.generate_markdown()
+        self.assertIn("Wrap up October 2026", markdown)
+        self.assertIn('"fixture"', markdown)
+        self.assertIn("## Count: 2", markdown)

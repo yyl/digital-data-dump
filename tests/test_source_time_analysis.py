@@ -26,6 +26,7 @@ def test_readwise_persists_resolved_source_time_and_refreshes_moved_articles(tmp
         conn.execute("UPDATE documents SET location = 'later' WHERE id IN ('a', 'b')")
     assert analytics.analyze_archived() == 0
     assert publisher._get_source_time_analysis(db, "2026-03") == []
+    assert db.fetch_rows("SELECT year_month FROM analysis") == []
 
 
 def test_overcast_persists_known_seconds_and_explicit_missing_duration_counts(tmp_path):

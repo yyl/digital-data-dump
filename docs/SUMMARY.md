@@ -293,7 +293,10 @@ These appear inline with top-line metrics.
 
 ## Activity Data Files
 
-The related `backfill` workflow regenerates monthly YAML data files under `data/activity/` for the blog.
+The related `backfill` workflow regenerates monthly YAML data files under
+`data/activity/` for the blog. A source with available analysis and an empty
+window writes an empty YAML list. An unavailable source leaves its existing
+export alone.
 
 Those files are not the markdown report itself, but they are derived from the same monthly analysis layer.
 

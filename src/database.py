@@ -6,8 +6,6 @@ from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
-from .config import Config
-
 logger = logging.getLogger(__name__)
 
 CREATE_SOURCE_TIME_ANALYSIS_TABLE = """
@@ -43,11 +41,11 @@ class BaseDatabase:
         self.db_path = db_path
         self.use_foreign_keys = False
         self._reported_unavailability: set[str] = set()
-        Config.ensure_data_dir()
 
     @contextmanager
     def get_connection(self):
         """Get a database connection as a context manager."""
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         if self.use_foreign_keys:

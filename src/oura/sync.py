@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from typing import Optional, Dict, Any
 
 from .database import OuraDatabase
-from .api_client import OuraAPIClient
+from .api_client import GEN3_ENDPOINTS, OuraAPIClient, OuraAPIError, OuraAuthenticationError
 
 
 # Default start date for initial full sync
@@ -75,28 +75,19 @@ class OuraSyncManager:
         new_count = 0
         latest_day = last_sync or ""
         for record in records:
-            try:
-                upsert_method(record)
-                day = record.get("day", "")
-                if day > latest_day:
-                    latest_day = day
-                if not last_sync or day > last_sync:
-                    new_count += 1
-            except Exception as e:
-                print(f"  Error upserting {data_type} record {record.get('id')}: {e}")
+            day = record["day"]
+            if date.fromisoformat(day).isoformat() != day:
+                raise OuraAPIError(f"Oura returned an invalid day for {data_type}.")
+            upsert_method(record)
+            latest_day = max(latest_day, day)
+            if not last_sync or day > last_sync:
+                new_count += 1
 
         # Update sync state with the latest day we've seen
         if latest_day:
             self.db.set_last_sync_date(data_type, latest_day)
 
         return new_count
-
-    # Endpoints that may require Gen 3+ hardware or active subscription
-    GEN3_ENDPOINTS = {
-        "daily_resilience",
-        "daily_spo2",
-        "daily_cardiovascular_age",
-    }
 
     def sync(self) -> Dict[str, Any]:
         """Sync all daily data types.
@@ -108,41 +99,36 @@ class OuraSyncManager:
 
         # Ensure authentication
         if not self.ensure_auth():
-            return stats
+            raise OuraAuthenticationError("Could not authenticate with Oura Ring.")
 
         # Initialize database
         self.db.init_tables()
 
         print("Syncing Oura Ring data...")
 
+        failures = []
         for data_type in self.UPSERT_METHODS:
-            if getattr(self.api, "_refresh_failed", False):
-                print(f"  ✗ Skipping {data_type}: authentication failed")
-                stats[data_type] = 0
-                continue
-
             try:
                 count = self._sync_data_type(data_type)
-                stats[data_type] = count
-                if count > 0:
-                    print(f"  ✓ {data_type}: {count} records")
-                elif getattr(self.api, "_refresh_failed", False):
-                    print(f"  ✗ {data_type}: authentication failed")
-                else:
-                    last_sync = self.db.get_last_sync_date(data_type)
-                    if last_sync:
-                        print(f"  · {data_type}: up to date")
-                    elif data_type in self.GEN3_ENDPOINTS:
-                        print(
-                            f"  ⊘ {data_type}: skipped"
-                            " (may require Gen 3+ ring or active Oura membership)"
-                        )
-                    else:
-                        print(f"  · {data_type}: no data")
+            except OuraAuthenticationError:
+                raise
             except Exception as e:
                 print(f"  ✗ {data_type}: error — {e}")
-                stats[data_type] = 0
+                failures.append(data_type)
+                continue
 
+            stats[data_type] = count
+            if count:
+                print(f"  ✓ {data_type}: {count} records")
+            elif self.db.get_last_sync_date(data_type):
+                print(f"  · {data_type}: up to date")
+            elif data_type in GEN3_ENDPOINTS:
+                print(f"  · {data_type}: no data (may require Gen 3+ or an active membership)")
+            else:
+                print(f"  · {data_type}: no data")
+
+        if failures:
+            raise OuraAPIError(f"Oura sync incomplete for {', '.join(failures)}.")
         total = sum(stats.values())
         print(f"\nOura sync complete! {total} total records synced.")
         return stats

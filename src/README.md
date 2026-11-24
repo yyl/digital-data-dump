@@ -137,22 +137,35 @@ The `src/publish/` package contains the publishing layer.
 
 ## Publish and Backfill Flows
 
+The CLI source catalog in `main.py` binds database factories, sync and analysis
+callables, and any source-specific arguments. `src/source_operations.py` runs
+those operations and reports failures. Status opens existing databases read-only
+and can show raw counts even before monthly analysis is available.
+
 ### Publish
 
 Supported paths:
 
-- `publish`: sync all sources, analyze all sources, generate the report, commit the draft post to the data repo under `posts/`
+- `publish`: refresh the reporting sources, generate the report, and commit the draft to the data repo under `posts/`
 - `publish --skip-sync-analysis`: generate the report from existing analysis data
 - `publish --dry-run`: render the report locally only
-- `publish --last-month`: publish the previous calendar month based on the process's local date; fail if that month has no analysis data
+- `publish --last-month`: publish the previous calendar month based on the process's local date when report data is available for it
 
-The publish flow scans the available analysis DBs and chooses the latest available `YYYY-MM`, while tolerating optional sources that may be missing. With `--last-month`, it selects the previous calendar month even if current-month analysis is absent. The scheduled workflow sets `TZ=America/Los_Angeles` so this selection follows Pacific time. Report drafts are written to `DATA_REPO_POSTS_DIR` in the data repo, which defaults to `posts`.
+Report sources declare which months they can render. Most use monthly analysis.
+Strong uses months whose latest workout has exercise data. With `--last-month`,
+the publisher selects the previous calendar month. The scheduled workflow sets
+`TZ=America/Los_Angeles` so this selection follows Pacific time. Drafts are
+written to `DATA_REPO_POSTS_DIR`, which defaults to `posts`.
 
 ### Backfill
 
-`backfill` regenerates activity data files twice: the full-history set goes to the data repo, and a second set limited to the rolling one-year lookback window goes to the blog repo under `data/activity/`.
+`backfill` reads the activity records once and renders two windows. The
+full-history set goes to the data repo and the rolling one-year set goes to the
+blog repo under `data/activity/`. Both windows are rendered before delivery.
 
-It does that by running each source's analyze command, and those analyze commands in turn refresh raw source data first through their paired sync path.
+The scheduled `pipeline --last-month` refreshes the reporting sources once, then
+renders the draft and both activity windows before delivering any files.
+`--skip-sync-analysis` reuses the current local analysis on a delivery retry.
 
 Current activity files:
 

@@ -122,13 +122,10 @@ jobs:
           OURA_REFRESH_TOKEN: ${{ env.OURA_REFRESH_TOKEN_FILE || secrets.OURA_REFRESH_TOKEN }}
         run: |
           COMMAND="${{ inputs.command }}"
-          # Scheduled runs publish the previous calendar month, then backfill.
+          # Scheduled runs refresh once, then publish the previous month and activity data.
           if [ -z "$COMMAND" ]; then
-            echo "Running: uv run main.py publish --last-month"
-            uv run --python $(cat .python-version) main.py publish --last-month
-            echo ""
-            echo "Running: uv run main.py backfill"
-            uv run --python $(cat .python-version) main.py backfill
+            echo "Running: uv run main.py pipeline --last-month"
+            uv run --python $(cat .python-version) main.py pipeline --last-month
           else
             LAST_MONTH_FLAG=""
             if [ "${{ inputs.last_month }}" == "true" ]; then
@@ -173,7 +170,14 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
           # Add any changed database files and tokens
-          git add data/*.db data/.oura_tokens.json 2>/dev/null || true
+          shopt -s nullglob
+          databases=(data/*.db)
+          if (( ${#databases[@]} )); then
+            git add -- "${databases[@]}"
+          fi
+          if [ -f data/.oura_tokens.json ]; then
+            git add -- data/.oura_tokens.json
+          fi
           
           # Only commit if there are changes
           if git diff --staged --quiet; then

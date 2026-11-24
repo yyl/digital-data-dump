@@ -139,8 +139,6 @@ def test_csv_import_reimport_and_publish_use_latest_export_weights(db, tmp_path,
     assert importer.sync() == {'workouts': 3, 'exercises': 4}
     assert importer.sync() == {'workouts': 3, 'exercises': 4}
     assert db.get_stats() == {'workouts': 3, 'exercises': 4}
-    assert StrongAnalytics(db).analyze_workouts() == 3
-
     publisher = publisher_for(db)
     assert publisher._get_target_year_month() == '2026-10'
     markdown = publisher.generate_markdown()

@@ -76,6 +76,7 @@ class OuraDatabase(BaseDatabase):
                 ON CONFLICT(data_type) DO UPDATE SET
                     last_sync_date = excluded.last_sync_date,
                     updated_at = excluded.updated_at
+                WHERE excluded.last_sync_date > COALESCE(sync_state.last_sync_date, '')
                 """,
                 (data_type, date, int(time.time())),
             )

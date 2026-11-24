@@ -100,6 +100,7 @@ class ReadwiseAnalytics:
 
             updated_at = utc_now_iso()
             conn.execute("DELETE FROM analysis_by_source")
+            conn.execute("DELETE FROM analysis")
             conn.executemany("""
                 INSERT INTO analysis_by_source (
                     year_month, source_name, items, timed_items, total_seconds, updated_at
@@ -119,14 +120,6 @@ class ReadwiseAnalytics:
                         reading_time_mins, max_words_per_article,
                         median_words_per_article, min_words_per_article, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(year_month) DO UPDATE SET
-                        articles = excluded.articles,
-                        words = excluded.words,
-                        reading_time_mins = excluded.reading_time_mins,
-                        max_words_per_article = excluded.max_words_per_article,
-                        median_words_per_article = excluded.median_words_per_article,
-                        min_words_per_article = excluded.min_words_per_article,
-                        updated_at = excluded.updated_at
                 """, (
                     year_month,
                     year,

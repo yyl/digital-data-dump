@@ -96,7 +96,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add data/schwab.db data/.schwab_tokens.json 2>/dev/null || true
+          if [ -f data/schwab.db ]; then
+            git add -- data/schwab.db
+          fi
+          if [ -f data/.schwab_tokens.json ]; then
+            git add -- data/.schwab_tokens.json
+          fi
 
           if git diff --staged --quiet; then
             echo "No Schwab changes to commit"

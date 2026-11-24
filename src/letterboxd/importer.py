@@ -182,11 +182,8 @@ class LetterboxdImporter:
         stats = {"users": 0, "watched": 0, "ratings": 0, "runtime_enriched": 0}
 
         # 1. Fallback / Historical CSV import (Only if database is empty)
-        try:
-            self.db.init_tables()
-            is_empty = self.db.get_stats().get("watched", 0) == 0
-        except Exception:
-            is_empty = True
+        self.db.init_tables()
+        is_empty = self.db.get_stats().get("watched", 0) == 0
 
         if is_empty:
             export_dir = self.find_latest_export()

@@ -1,6 +1,8 @@
 """Markdown generator for Hugo-compatible blog articles."""
 
 from collections import defaultdict
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import datetime
 from html import escape
 from typing import Dict, Any, Optional
@@ -11,70 +13,48 @@ from ..comparison import format_change, format_comparison_suffix
 from ..github.models import VISIBILITY_METRICS
 
 
+@dataclass(frozen=True)
+class ReportSection:
+    key: str
+    tag: str
+    tag_order: int
+    render: Callable[[dict], str]
+    required_field: str | None = None
+
+    def is_visible(self, data: dict) -> bool:
+        return bool(data.get(self.required_field)) if self.required_field else bool(data)
+
+
 class MarkdownGenerator:
     """Generates Hugo-compatible markdown content for monthly summaries."""
-    
-    def generate_monthly_summary(self, data: Dict[str, Any]) -> str:
-        """Generate complete markdown content for the monthly summary.
-        
-        Args:
-            data: Dictionary with 'year', 'month', and source-specific data.
-            
-        Returns:
-            Complete markdown content as string.
-        """
-        parts = []
-        
-        # Front matter
-        parts.append(self._generate_front_matter(data))
-        
-        # Readwise section
-        if data.get('readwise'):
-            parts.append(self._generate_readwise_section(data['readwise']))
-        
-        # Hardcover section
-        if data.get('hardcover'):
-            parts.append(self._generate_hardcover_section(data['hardcover']))
 
-        # Overcast section
-        if data.get('overcast'):
-            parts.append(self._generate_overcast_section(data['overcast']))
+    def report_sections(self) -> tuple[ReportSection, ...]:
+        return (
+            ReportSection('readwise', 'readwise', 0, self._generate_readwise_section),
+            ReportSection('hardcover', 'hardcover', 7, self._generate_hardcover_section),
+            ReportSection('overcast', 'overcast', 3, self._generate_overcast_section),
+            ReportSection('blog', 'blog', 6, self._generate_blog_section),
+            ReportSection('github', 'github', 8, self._generate_github_section),
+            ReportSection('apple_health', 'apple-health', 4, self._generate_apple_health_section),
+            ReportSection('surfilog', 'surfilog', 10, self._generate_surfilog_section),
+            ReportSection('kaya', 'kaya', 11, self._generate_bouldering_section),
+            ReportSection('strong', 'strong', 5, self._generate_weightlifting_section, required_field='exercises'),
+            ReportSection('foursquare', 'foursquare', 1, self._generate_foursquare_section),
+            ReportSection('letterboxd', 'letterboxd', 2, self._generate_letterboxd_section),
+            ReportSection('oura', 'oura', 9, self._generate_oura_section),
+        )
 
-        # Blog writing section
-        if data.get('blog'):
-            parts.append(self._generate_blog_section(data['blog']))
-
-        # GitHub section
-        if data.get('github'):
-            parts.append(self._generate_github_section(data['github']))
-
-        # Apple Health workout section
-        if data.get('apple_health'):
-            parts.append(self._generate_apple_health_section(data['apple_health']))
-
-        if data.get('surfilog'):
-            parts.append(self._generate_surfilog_section(data['surfilog']))
-
-        if data.get('kaya'):
-            parts.append(self._generate_bouldering_section(data['kaya']))
-
-        if data.get('strong', {}).get('exercises'):
-            parts.append(self._generate_weightlifting_section(data['strong']))
-
-        # Foursquare section
-        if data.get('foursquare'):
-            parts.append(self._generate_foursquare_section(data['foursquare']))
-
-        # Letterboxd section
-        if data.get('letterboxd'):
-            parts.append(self._generate_letterboxd_section(data['letterboxd']))
-
-        # Oura Ring section
-        if data.get('oura'):
-            parts.append(self._generate_oura_section(data['oura']))
-
+    def generate_monthly_summary(
+        self, data: Dict[str, Any], *, sections: Iterable[ReportSection] | None = None,
+    ) -> str:
+        """Render the available sections and their front matter tags."""
+        if sections is None:
+            sections = self.report_sections()
+        visible = [section for section in sections if section.is_visible(data.get(section.key, {}))]
+        tags = [section.tag for section in sorted(visible, key=lambda section: section.tag_order)]
+        parts = [self._generate_front_matter(data, tags)]
+        parts.extend(section.render(data[section.key]) for section in visible)
         parts.append(self._generate_signoff(data))
-        
         return "\n".join(parts)
 
     def _generate_signoff(self, data: Dict[str, Any]) -> str:
@@ -87,7 +67,7 @@ class MarkdownGenerator:
 
         return f"\nThat's it. See you in {next_month_name}!\n"
     
-    def _generate_front_matter(self, data: Dict[str, Any]) -> str:
+    def _generate_front_matter(self, data: Dict[str, Any], source_tags: list[str]) -> str:
         """Generate YAML front matter for the markdown file."""
         month_str = data['month']
         year = data['year']
@@ -101,33 +81,8 @@ class MarkdownGenerator:
         now = datetime.now(pdt)
         date_iso = now.isoformat(timespec='seconds')
         
-        # Build tags based on available data
-        tags = ["monthly", "digest", "automated", "summary", "wrap-up", f"{month_str}-{year}"]
-        if data.get('readwise'):
-            tags.append("readwise")
-        if data.get('foursquare'):
-            tags.append("foursquare")
-        if data.get('letterboxd'):
-            tags.append("letterboxd")
-        if data.get('overcast'):
-            tags.append("overcast")
-        if data.get('apple_health'):
-            tags.append("apple-health")
-        if data.get('strong', {}).get('exercises'):
-            tags.append("strong")
-        if data.get('blog'):
-            tags.append("blog")
-        if data.get('hardcover'):
-            tags.append("hardcover")
-        if data.get('github'):
-            tags.append("github")
-        if data.get('oura'):
-            tags.append("oura")
-        if data.get('surfilog'):
-            tags.append("surfilog")
-        if data.get('kaya'):
-            tags.append("kaya")
-        
+        tags = ["monthly", "digest", "automated", "summary", "wrap-up", f"{month_str}-{year}", *source_tags]
+
         tags_str = ", ".join(f'"{t}"' for t in tags)
         
         return f"""---

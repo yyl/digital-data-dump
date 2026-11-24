@@ -1,18 +1,14 @@
-import sys
-from unittest.mock import MagicMock
-
-# Mock missing dependencies before importing src
-sys.modules['dotenv'] = MagicMock()
-sys.modules['requests'] = MagicMock()
-sys.modules['github'] = MagicMock()
-
 import subprocess
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from pathlib import Path
+
+import pytest
+
 from src.overcast.importer import OvercastImporter
 from src.config import Config
 
-def test_sync_timeout_handled():
+@patch.object(OvercastImporter, 'get_authenticated_cookie', return_value=None)
+def test_sync_timeout_handled(_cookie):
     """Test that subprocess.TimeoutExpired is handled gracefully."""
     importer = OvercastImporter()
 
@@ -22,30 +18,29 @@ def test_sync_timeout_handled():
         with patch('subprocess.run', side_effect=subprocess.TimeoutExpired(cmd=["overcast-to-sqlite"], timeout=60)):
             # Mock get_db_stats just in case, though it shouldn't be called on timeout
             with patch.object(OvercastImporter, 'get_db_stats') as mock_get_stats:
-                stats = importer.sync()
-
-                # Verify that it returns the initial empty stats
-                assert stats == {"feeds": 0, "episodes": 0, "playlists": 0}
-                # Verify that get_db_stats was NOT called because it should have timed out before
+                with pytest.raises(RuntimeError, match="timed out after 60 seconds"):
+                    importer.sync()
                 mock_get_stats.assert_not_called()
 
-def test_sync_called_process_error_handled():
+@patch.object(OvercastImporter, 'get_authenticated_cookie', return_value=None)
+def test_sync_called_process_error_handled(_cookie):
     """Test that subprocess.CalledProcessError is handled gracefully."""
     importer = OvercastImporter()
 
     with patch.object(OvercastImporter, 'find_latest_export', return_value=Path("dummy.opml")):
         with patch('subprocess.run', side_effect=subprocess.CalledProcessError(1, ["overcast-to-sqlite"], stderr="error")):
-            stats = importer.sync()
-            assert stats == {"feeds": 0, "episodes": 0, "playlists": 0}
+            with pytest.raises(RuntimeError, match="exited with status 1"):
+                importer.sync()
 
-def test_sync_file_not_found_handled():
+@patch.object(OvercastImporter, 'get_authenticated_cookie', return_value=None)
+def test_sync_file_not_found_handled(_cookie):
     """Test that FileNotFoundError is handled gracefully."""
     importer = OvercastImporter()
 
     with patch.object(OvercastImporter, 'find_latest_export', return_value=Path("dummy.opml")):
         with patch('subprocess.run', side_effect=FileNotFoundError()):
-            stats = importer.sync()
-            assert stats == {"feeds": 0, "episodes": 0, "playlists": 0}
+            with pytest.raises(RuntimeError, match="unavailable"):
+                importer.sync()
 
 
 def test_sync_uses_direct_export_when_cookie_configured(monkeypatch):

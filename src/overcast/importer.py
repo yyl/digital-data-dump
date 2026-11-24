@@ -75,14 +75,12 @@ class OvercastImporter:
         
         return opml_files[0] if opml_files else None
     
-    def sync(self) -> Dict[str, int]:
+    def sync(self) -> Dict[str, int] | None:
         """Auto-discover latest export and import it.
         
         Returns:
-            Dictionary with import counts
+            Dictionary with import counts, or None when no export is configured.
         """
-        stats = {"feeds": 0, "episodes": 0, "playlists": 0}
-
         opml_file = None
         run_env = None
         command = [
@@ -99,17 +97,18 @@ class OvercastImporter:
         else:
             opml_file = self.find_latest_export()
             if not opml_file:
-                print("Error: No Overcast export source found.")
-                print("  Configure OVERCAST_COOKIE or OVERCAST_EMAIL / OVERCAST_PASSWORD,")
-                print("  or place files/overcast*.opml in the storage files/ directory.")
-                return stats
+                if Config.OVERCAST_EMAIL or Config.OVERCAST_PASSWORD:
+                    raise RuntimeError("Overcast login failed and no local OPML export is available.")
+                print("Skipping Overcast import: no configured or local export.")
+                return None
 
             print(f"Found export: {opml_file.name}")
             command.extend(["--load", str(opml_file)])
         
         # Run overcast-to-sqlite command
+        Path(self.db.db_path).parent.mkdir(parents=True, exist_ok=True)
         try:
-            result = subprocess.run(
+            subprocess.run(
                 command,
                 capture_output=True,
                 text=True,
@@ -129,14 +128,11 @@ class OvercastImporter:
             self._enrich_durations()
             
         except subprocess.TimeoutExpired:
-            print("Error: overcast-to-sqlite timed out after 60 seconds")
+            raise RuntimeError("overcast-to-sqlite timed out after 60 seconds.") from None
         except subprocess.CalledProcessError as e:
-            print(f"Error running overcast-to-sqlite: {e}")
-            if e.stderr:
-                print(f"  {e.stderr}")
+            raise RuntimeError(f"overcast-to-sqlite exited with status {e.returncode}.") from None
         except FileNotFoundError:
-            print("Error: overcast-to-sqlite not installed")
-            print("  Run: uv sync")
+            raise RuntimeError("overcast-to-sqlite is unavailable. Run uv sync.") from None
         return stats
     
     def _enrich_durations(self) -> None:
@@ -145,10 +141,11 @@ class OvercastImporter:
             cursor = conn.cursor()
             
             # 1. Ensure column exists
-            try:
+            conn.execute("BEGIN IMMEDIATE")
+            columns = {row["name"] for row in cursor.execute("PRAGMA table_info(episodes)")}
+            if "duration_seconds" not in columns:
                 cursor.execute(ADD_DURATION_COLUMN)
-            except Exception:
-                pass  # Ignore if column already exists
+            conn.commit()
                 
             # 2. Get missing episodes so we can normalize titles for robust matching
             cursor.execute("""

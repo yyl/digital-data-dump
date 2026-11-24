@@ -81,17 +81,15 @@ def test_process_rss_data(mock_db):
 
 def test_malformed_xml(mock_db):
     syncer = LetterboxdRSSSyncer(db=mock_db, rss_url="http://fake")
-    stats = syncer._process_rss_data(b"<badxml>")
-    
-    assert stats["watched"] == 0
-    assert stats["ratings"] == 0
+    with pytest.raises(RuntimeError, match="Failed to parse"):
+        syncer._process_rss_data(b"<badxml>")
+    mock_db.init_tables.assert_not_called()
 
 @patch("src.letterboxd.rss_syncer.urlopen")
 def test_sync_network_error(mock_urlopen, mock_db):
-    mock_urlopen.side_effect = Exception("Network Error")
+    mock_urlopen.side_effect = OSError("Network Error")
     
     syncer = LetterboxdRSSSyncer(db=mock_db, rss_url="http://fake")
-    stats = syncer.sync()
-
-    assert stats["watched"] == 0
-    assert stats["ratings"] == 0
+    with pytest.raises(RuntimeError, match="Failed to fetch"):
+        syncer.sync()
+    mock_db.init_tables.assert_not_called()

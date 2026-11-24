@@ -20,7 +20,7 @@ except ImportError:
 
 import pytest
 from unittest.mock import patch, call
-from src.foursquare.api_client import FoursquareAPIClient
+from src.foursquare.api_client import FoursquareAPIClient, FoursquareAPIError
 
 
 @pytest.fixture
@@ -154,7 +154,7 @@ class TestFoursquareAPIClient:
                 "checkins": {
                     "items": [
                         {"id": "1", "createdAt": 200},
-                        {"id": "2", "createdAt": 150},
+                        {"id": "2", "createdAt": 120},  # Revisit the cursor second.
                         {"id": "3", "createdAt": 100}  # Should be filtered out if after_timestamp=120
                     ]
                 }
@@ -206,16 +206,16 @@ class TestFoursquareAPIClient:
         # Always fail
         mock_session.get.side_effect = api_requests.exceptions.RequestException("Fail")
 
-        checkins = client.fetch_checkins()
-
-        # It returns empty list because _make_request returns None, and fetch_checkins loop breaks
-        # But wait, fetch_checkins loop condition:
-        # data = self._make_request(...)
-        # if not data: break
-        # So it returns all_checkins which is initially empty.
-
-        assert checkins == []
+        with pytest.raises(FoursquareAPIError, match="complete page"):
+            client.fetch_checkins()
         assert mock_session.get.call_count == client.MAX_RETRIES
+
+    def test_failure_on_later_page_is_not_a_complete_fetch(self, mock_config, mock_session):
+        client = FoursquareAPIClient()
+        first = {"response": {"checkins": {"items": [{"id": "1", "createdAt": 150}]}}}
+        with patch.object(client, "_make_request", side_effect=[first, None]):
+            with pytest.raises(FoursquareAPIError, match="complete page"):
+                client.fetch_checkins(limit=1)
 
     @patch("time.sleep")
     @patch("time.time")

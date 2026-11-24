@@ -67,9 +67,8 @@ class LetterboxdRSSSyncer:
             req = Request(self.rss_url, headers={"User-Agent": "Mozilla/5.0"})
             with urlopen(req, timeout=self.timeout) as resp:
                 rss_data = resp.read()
-        except Exception as e:
-            logger.warning("Failed to fetch Letterboxd RSS feed: %s", e)
-            return stats
+        except OSError:
+            raise RuntimeError("Failed to fetch the Letterboxd RSS feed.") from None
 
         return self._process_rss_data(rss_data)
 
@@ -79,9 +78,8 @@ class LetterboxdRSSSyncer:
 
         try:
             items = self._parse_items(xml_data)
-        except ET.ParseError as e:
-            logger.warning("Failed to parse Letterboxd RSS feed: %s", e)
-            return stats
+        except ET.ParseError:
+            raise RuntimeError("Failed to parse the Letterboxd RSS feed.") from None
 
         if not items:
             return stats
