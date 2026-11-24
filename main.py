@@ -877,14 +877,15 @@ def cmd_surfilog_analyze():
 
 
 def cmd_kaya_sync(csv_path=None):
-    """Import an explicit or automatically discovered Kaya export."""
-    from src.kaya.importer import EXPORT_PATTERN, KayaImporter
+    """Import an explicit Kaya export or discover local and DDU exports."""
+    from src.kaya.importer import KayaImporter
 
-    csv_path = csv_path or KayaImporter.find_export()
-    if csv_path is None:
-        print(f"Skipping Kaya import: no {EXPORT_PATTERN} found in the files directory.")
+    importer = KayaImporter()
+    exports = [csv_path] if csv_path else importer.find_exports()
+    if not exports:
+        print("Skipping Kaya import: no local or DDU exports found in the files directory.")
         return
-    count = KayaImporter().sync(csv_path)
+    count = sum(importer.sync(path) for path in exports)
     print(f"Added {count:,} new Kaya climbs.")
 
 

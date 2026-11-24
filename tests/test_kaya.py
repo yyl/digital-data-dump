@@ -1,5 +1,6 @@
 """Verify incremental Kaya imports, local month grouping, and published aggregates."""
 
+from hashlib import sha256
 from unittest.mock import MagicMock
 
 import pytest
@@ -117,6 +118,24 @@ def test_invalid_export_preserves_existing_climbs(db, tmp_path):
         importer.sync(export)
     rows = db.fetch_rows("SELECT grade FROM climbs", required_tables=("climbs",))
     assert rows == [{"grade": "v4"}]
+
+
+def test_analyze_imports_each_uploaded_archive(db, tmp_path):
+    uploads = tmp_path / "kaya" / "exports"
+    uploads.mkdir(parents=True)
+    october = OCTOBER_LOGS.splitlines(keepends=True)
+    for export in (HEADER + SEPTEMBER_SEND + october[0], HEADER + OCTOBER_LOGS):
+        (uploads / f"{sha256(export.encode()).hexdigest()}.csv").write_text(export, encoding="utf-8")
+
+    cmd_kaya_analyze()
+    cmd_kaya_analyze()
+    assert db.fetch_rows("SELECT year_month, sends FROM analysis ORDER BY year_month") == [
+        {"year_month": "2026-09", "sends": 1},
+        {"year_month": "2026-10", "sends": 3},
+    ]
+    assert db.fetch_rows("SELECT COUNT(*) AS climbs FROM climbs", required_tables=("climbs",)) == [
+        {"climbs": 5},
+    ]
 
 
 def test_legacy_rows_get_stable_ids_without_losing_same_time_climbs(db, tmp_path):

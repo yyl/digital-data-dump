@@ -1,6 +1,6 @@
 # iPhone upload Shortcuts
 
-The phone sends workout exports to digital-data-uploader (DDU), which saves them
+The phone sends activity exports to digital-data-uploader (DDU), which saves them
 in the private digital-data-vault (DDV) repository. digital-data-dump (D3) later
 imports those local files and computes monthly metrics.
 
@@ -9,19 +9,20 @@ checked into these repositories. This guide records their behavior and the
 request formats supported by DDU, rather than exact screenshots or action labels
 for a particular iOS/Actions version.
 
-## The two workflows
+## Upload workflows
 
 | Shortcut | Phone input | DDU endpoint | Vault output | Delivery |
 | --- | --- | --- | --- | --- |
 | Apple Health | Recent workouts queried through Actions | `POST /v1/workout-batches` | `files/apple_health/actions/batches/<batch-id>.json` | Durable D1 inbox, then background/manual delivery |
 | Strong | Latest complete CSV export shared from Strong or Files | `POST /v1/strong-export` | `files/strong_workouts.csv` | Direct GitHub save before returning success |
+| Kaya | Kaya CSV export shared as a file | `POST /v1/kaya-export` | `files/kaya/exports/<sha256>.csv` | Direct GitHub save before returning success |
 
 Uploading does not run D3, update its databases, or publish a report. Acceptance,
 vault archival, and D3 import are separate outcomes.
 
 ## Connection settings
 
-Both Shortcuts use **Get Contents of URL**, with:
+All three Shortcuts use **Get Contents of URL**, with:
 
 - **Method:** `POST`.
 - **Authorization header:** `Bearer YOUR_UPLOAD_TOKEN`.
@@ -265,6 +266,39 @@ the editor's Play button may provide no shared file. Inspect the CSV's first
 line if `invalid_strong_header` persists; that line is enough to compare column
 names without sharing workout records.
 
+## Kaya upload from the share sheet
+
+If you already have **Upload Strong Export**, duplicate it, rename it **Upload
+Kaya Export**, and replace `/v1/strong-export` in the URL with
+`/v1/kaya-export`. To build it from scratch, use these steps.
+
+1. In **Shortcuts**, create a shortcut named **Upload Kaya Export**. Open
+   **Details**, enable **Show in Share Sheet**, and set the accepted type to
+   **Files**.
+2. Add **URL** with `<BASE_URL>/v1/kaya-export`.
+3. Add **Get Contents of URL**, expand its settings, and use these values.
+
+   | Setting | Value |
+   | --- | --- |
+   | Method | `POST` |
+   | Header `Authorization` | `Bearer YOUR_UPLOAD_TOKEN` |
+   | Header `Content-Type` | `text/csv` |
+   | Request Body | **File** |
+   | File | **Shortcut Input** |
+
+4. Add **Show Result** using the **Contents of URL** response.
+5. Share the Kaya CSV to **Upload Kaya Export**. If you have the export in
+   **Files**, touch and hold it, tap **Share**, and choose the shortcut.
+
+Share one CSV at a time, up to 512 KiB. A `saved` response includes the path
+in the vault and the GitHub commit SHA. `unchanged` means the same file is
+already there. Changed exports get separate files, so multiple partial exports
+can arrive before D3 runs. On an HTTP error, keep the file and inspect the
+response before resending.
+
+See Apple's [share sheet setup](https://support.apple.com/en-us/guide/shortcuts/apd163eb9f95/ios)
+and [Get Contents of URL settings](https://support.apple.com/en-us/guide/shortcuts/apd58d46713f/ios).
+
 ## Refresh D3 after archival
 
 Update the local DDV checkout before importing. From the D3 repository, run the
@@ -273,14 +307,14 @@ commands for whichever source was uploaded:
 ```sh
 uv run main.py apple-health-analyze
 uv run main.py strong-analyze
+uv run main.py kaya-analyze
 uv run main.py publish --dry-run
 ```
 
-The first two commands import local files and refresh their monthly analysis.
-The dry-run previews the report using existing analysis; it does not perform
-either import. Apple Health supplies Workout metrics; Strong supplies the
-separate Weightlifting section. Walks remain in the Apple Health database but
-are excluded from its published workout totals.
+The analyze commands import local files and refresh monthly analysis. The dry
+run previews the report using existing analysis. Apple Health supplies Workout,
+Strong supplies Weightlifting, and Kaya supplies Bouldering. Walks remain in the
+Apple Health database but are excluded from its published workout totals.
 
 Existing XML-derived rows are preserved. Automatic XML/JSON matching is limited
 to workouts starting August 1, 2026 onward; older observations without a saved
@@ -296,7 +330,7 @@ historical baseline. See [source setup](SOURCES.md#apple-health),
 | Phone cannot reach the local server | Mac network IP, same network, server listening on `0.0.0.0`, local network/firewall permission |
 | 401 | Upload bearer token and Authorization header |
 | 413 | Workouts/count/byte limit; split the export into smaller requests |
-| 415 | Explicit `application/json` for Apple Health or `text/csv` for Strong; use a File body |
+| 415 | Use a File body and set `Content-Type` to `application/json` for Apple Health or `text/csv` for Strong and Kaya |
 | 422 | Required fields, string values, date/unit formats, duplicate UUIDs within a batch, or CSV structure |
 | Strong `invalid_strong_header` | CSV column names or duplicate headers; inspect the first CSV row and confirm Shortcut Input contains the exported file |
 | Apple Health remains queued | Local admin retry or deployed delivery execution; inspect receipt/status on the trusted server |

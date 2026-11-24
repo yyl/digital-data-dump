@@ -13,7 +13,7 @@
 
 If you want source-by-source setup details, see [docs/SOURCES.md](docs/SOURCES.md).
 
-For the iPhone Apple Health and Strong upload workflows, see [docs/SHORTCUTS.md](docs/SHORTCUTS.md).
+For the iPhone Apple Health, Strong, and Kaya upload workflows, see [docs/SHORTCUTS.md](docs/SHORTCUTS.md).
 
 If you want the report format and layout, see [docs/SUMMARY.md](docs/SUMMARY.md).
 

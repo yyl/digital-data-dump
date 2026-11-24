@@ -249,6 +249,9 @@ Place a Kaya CSV export in `<storage-root>/files/` with its original
 `KAYA-Export-<timestamp>.csv` name, then run `uv run main.py kaya-analyze`.
 When several exports are present, D3 uses the latest filename timestamp.
 Both `kaya-sync` and `kaya-analyze` accept an explicit CSV path.
+You can also [upload from the iPhone share sheet](SHORTCUTS.md#kaya-upload-from-the-share-sheet).
+After updating your local vault checkout, these commands also read every DDU
+archive under `files/kaya/exports/`.
 
 Full and partial exports both merge into the stored history. D3 skips matching
 records and keeps records missing from the new file. A malformed file fails

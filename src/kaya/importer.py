@@ -18,12 +18,19 @@ class KayaImporter:
 
     @staticmethod
     def find_export():
-        """Select the latest timestamped export in the files directory."""
+        """Select the latest manually saved timestamped export."""
         return max(
             (path for path in Config.FILES_DIR.glob(EXPORT_PATTERN) if path.is_file()),
             key=lambda path: path.name,
             default=None,
         )
+
+    def find_exports(self) -> list[Path]:
+        """Include every immutable DDU upload, since uploads can be partial."""
+        manual = self.find_export()
+        uploads = Config.FILES_DIR / "kaya" / "exports"
+        archived = sorted(path for path in uploads.glob("*.csv") if path.is_file())
+        return [manual, *archived] if manual is not None else archived
 
     def sync(self, csv_path: str | Path) -> int:
         timezone = ZoneInfo(Config.KAYA_TIMEZONE)
