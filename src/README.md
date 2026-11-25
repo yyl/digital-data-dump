@@ -831,6 +831,11 @@ Analysis fields:
 Data tables:
 
 - `workouts`
+- `heart_breathing_samples` is an optional raw table populated by the explicit XML
+  heart and breathing import. Each row keeps the Apple quantity type (without
+  the `HKQuantityTypeIdentifier` prefix), value, original unit, UTC timestamps,
+  source, device, and metadata JSON. A hash of these fields deduplicates
+  identical samples. The import streams top-level records in one transaction.
 - `json_batches`: immutable batch ID, byte SHA-256, receipt timestamp, archive
   reference, full envelope JSON, observation count, and imported/pending/excluded status.
 - `json_observations`: unique `(batch_id, identifier)` snapshots used to rebuild

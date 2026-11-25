@@ -181,11 +181,13 @@ comparable. See the
 ## Apple Health
 
 Imports workout summaries archived by `digital-data-uploader` as JSON in
-`digital-data-vault`. Existing XML-derived database entries are preserved.
+`digital-data-vault`. Existing XML-derived workout entries are preserved. A
+separate XML import supports individual heart and breathing samples.
 
 **Commands**
 - `apple-health-sync`
 - `apple-health-analyze`
+- `apple-health-import-heart-breathing [xml_path]`
 
 **Required in `.env`**
 - None
@@ -193,8 +195,8 @@ Imports workout summaries archived by `digital-data-uploader` as JSON in
 Place or update the immutable DDU archives in
 `<storage-root>/files/apple_health/actions/batches/*.json`, then run
 `uv run main.py apple-health-analyze` to import and recompute monthly totals.
-Sync reads local files; update the vault checkout before running it. XML is not
-automatically imported by these commands.
+Workout sync reads JSON archives from the local vault checkout. Update that
+checkout before syncing.
 
 Workout UUIDs deduplicate overlapping uploads across all dates. Matching against
 existing XML-derived rows is limited to workouts starting August 1, 2026 onward
@@ -218,6 +220,14 @@ rebuild the historical dataset. `uv run main.py status` shows archive and import
 state counts. The technical review queries are documented in `src/README.md`.
 
 Apple Health is the source used for published workout metrics and `workouts.yaml`.
+
+Use **Export All Health Data** in the iPhone Health app and unpack the export to
+import heart rate, resting heart rate, walking heart rate average, one-minute
+heart-rate recovery, blood oxygen, VO₂ max, and respiratory rate. Place the
+`export.xml` under `<storage-root>/files/` or supply its path to
+`apple-health-import-heart-breathing`. New samples are added to the local
+`heart_breathing_samples` table in `apple_health.db`. Reusing the same or an
+overlapping export skips identical samples.
 
 ## Surfilog
 

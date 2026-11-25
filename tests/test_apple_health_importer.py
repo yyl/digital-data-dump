@@ -1,6 +1,7 @@
 from pathlib import Path
 import pytest
 
+import main
 from src.apple_health.database import AppleHealthDatabase
 from src.apple_health.importer import AppleHealthImporter
 from src.config import Config
@@ -203,3 +204,54 @@ def test_importer_rejects_git_lfs_pointer_file(tmp_path):
 
     with pytest.raises(ValueError, match="Git LFS pointer"):
         importer.import_from_file(xml_path)
+
+
+def test_heart_breathing_command_imports_samples_only_and_can_be_retried(tmp_path, monkeypatch, capsys):
+    db_path = tmp_path / "apple_health.db"
+    xml_path = tmp_path / "export.xml"
+    xml_path.write_text(APPLE_HEALTH_EXPORT.replace("</HealthData>", """
+  <Record type="HKQuantityTypeIdentifierOxygenSaturation" value="0.98" unit="%"
+    sourceName="Watch" startDate="2026-04-02 19:00:00 -0700" endDate="2026-04-02 19:00:00 -0700">
+    <MetadataEntry key="HKExternalUUID" value="sample-id"/>
+  </Record>
+</HealthData>"""), encoding="utf-8")
+    monkeypatch.setattr(Config, "APPLE_HEALTH_DATABASE_PATH", db_path)
+    monkeypatch.setattr(Config, "FILES_DIR", tmp_path)
+    db = AppleHealthDatabase(str(db_path))
+    assert AppleHealthImporter(db).import_from_file(xml_path) == {"workouts": 2}
+
+    assert main.main(["apple-health-import-heart-breathing"]) == 0
+    assert "3 new heart and breathing samples" in capsys.readouterr().out
+    assert main.main(["apple-health-import-heart-breathing", str(xml_path)]) == 0
+    assert "0 new heart and breathing samples" in capsys.readouterr().out
+
+    with db.read_connection(required_tables=("heart_breathing_samples",)) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM workouts").fetchone()[0] == 2
+        rows = conn.execute("""
+            SELECT sample_type, value, unit, started_at, source_name, metadata_json
+            FROM heart_breathing_samples ORDER BY started_at
+        """).fetchall()
+    assert [tuple(row) for row in rows] == [
+        ("HeartRate", 100.0, "count/min", "2026-04-03T01:05:00+00:00", "Apple Watch", "{}"),
+        ("HeartRate", 110.0, "count/min", "2026-04-03T01:10:00+00:00", "Apple Watch", "{}"),
+        ("OxygenSaturation", 0.98, "%", "2026-04-03T02:00:00+00:00", "Watch", '{"HKExternalUUID": "sample-id"}'),
+    ]
+
+
+def test_heart_breathing_import_rolls_back_after_invalid_sample(tmp_path):
+    db = AppleHealthDatabase(str(tmp_path / "apple_health.db"))
+    importer = AppleHealthImporter(db)
+    xml_path = tmp_path / "export.xml"
+    xml_path.write_text(APPLE_HEALTH_EXPORT, encoding="utf-8")
+    assert importer.import_heart_breathing_from_file(xml_path) == 2
+
+    xml_path.write_text(
+        APPLE_HEALTH_EXPORT.replace('value="100"', 'value="101"').replace('value="110"', 'value="NaN"'),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="Invalid HeartRate sample"):
+        importer.import_heart_breathing_from_file(xml_path)
+
+    rows = db.fetch_rows("SELECT value FROM heart_breathing_samples ORDER BY value",
+                         required_tables=("heart_breathing_samples",))
+    assert rows == [{"value": 100.0}, {"value": 110.0}]

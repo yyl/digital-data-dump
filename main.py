@@ -3,6 +3,7 @@
 
 import argparse
 from functools import partial
+from pathlib import Path
 
 from src.config import Config
 from src.source_operations import Source, run_sources
@@ -70,6 +71,18 @@ def cmd_apple_health_sync():
     if not stats['success']:
         raise RuntimeError('Apple Health JSON sync requires attention; see the import summary and json_import_state.')
     return stats
+
+
+def cmd_apple_health_import_heart_breathing(xml_path=None):
+    """Import heart and breathing samples from a local Apple Health export."""
+    from src.apple_health.importer import AppleHealthImporter
+
+    importer = AppleHealthImporter()
+    path = xml_path if xml_path is not None else importer.find_latest_export()
+    if path is None:
+        raise ValueError("No Apple Health export.xml found under files/. Supply its path explicitly.")
+    added = importer.import_heart_breathing_from_file(path)
+    print(f"Apple Health: {added:,} new heart and breathing samples added.")
 
 
 def cmd_blog_sync():
@@ -425,6 +438,12 @@ def main(argv=None) -> int:
     overcast_latest = commands.add_parser("overcast-publish-latest", help="Publish the latest played episode to the blog")
     overcast_latest.add_argument("--dry-run", action="store_true", help="Preview the snapshot without updating GitHub")
     overcast_latest.set_defaults(operation=publish_latest_podcast)
+
+    heart_breathing = commands.add_parser(
+        "apple-health-import-heart-breathing", help="Import heart and breathing samples from Apple Health XML"
+    )
+    heart_breathing.add_argument("xml_path", nargs="?", type=Path, help="Defaults to the newest export.xml under files/")
+    heart_breathing.set_defaults(operation=cmd_apple_health_import_heart_breathing)
 
     for source in sources:
         _add_source_commands(commands, source)

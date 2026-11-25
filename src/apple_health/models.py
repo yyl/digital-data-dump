@@ -1,4 +1,4 @@
-"""SQL schema definitions for Apple Health workout data."""
+"""SQL schema definitions for Apple Health data."""
 
 CREATE_WORKOUTS_TABLE = """
 CREATE TABLE IF NOT EXISTS workouts (
@@ -18,6 +18,27 @@ CREATE TABLE IF NOT EXISTS workouts (
     creation_date TEXT,
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
 );
+"""
+
+CREATE_HEART_BREATHING_SAMPLES_TABLE = """
+CREATE TABLE IF NOT EXISTS heart_breathing_samples (
+    id TEXT PRIMARY KEY NOT NULL,
+    sample_type TEXT NOT NULL,
+    value REAL NOT NULL,
+    unit TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    ended_at TEXT NOT NULL,
+    creation_date TEXT,
+    source_name TEXT,
+    source_version TEXT,
+    device TEXT,
+    metadata_json TEXT NOT NULL
+);
+"""
+
+CREATE_HEART_BREATHING_SAMPLES_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_apple_health_heart_breathing_type_started
+ON heart_breathing_samples(sample_type, started_at);
 """
 
 CREATE_ANALYSIS_TABLE = """

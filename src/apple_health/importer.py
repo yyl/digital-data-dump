@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import math
 from bisect import insort
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, Iterator, List, Optional
 import xml.etree.ElementTree as ET
 
 from ..config import Config
@@ -16,6 +18,17 @@ from .database import AppleHealthDatabase
 HEART_RATE_TYPE = "HKQuantityTypeIdentifierHeartRate"
 ACTIVE_ENERGY_TYPE = "HKQuantityTypeIdentifierActiveEnergyBurned"
 BASAL_ENERGY_TYPE = "HKQuantityTypeIdentifierBasalEnergyBurned"
+
+QUANTITY_TYPE_PREFIX = "HKQuantityTypeIdentifier"
+HEART_BREATHING_TYPES = frozenset({
+    "HeartRate",
+    "RestingHeartRate",
+    "WalkingHeartRateAverage",
+    "OxygenSaturation",
+    "VO2Max",
+    "HeartRateRecoveryOneMinute",
+    "RespiratoryRate",
+})
 
 HEART_RATE_UNITS = {"count/min", "beats/min", "bpm"}
 ENERGY_TO_KCAL = {
@@ -130,6 +143,11 @@ class AppleHealthImporter:
         self._apply_record_fallbacks(workouts, samples)
         saved = self.db.save_workouts([workout.to_db_row() for workout in workouts])
         return {"workouts": saved}
+
+    def import_heart_breathing_from_file(self, xml_path: Path) -> int:
+        """Import individual heart and breathing samples from a full Health export."""
+        self._validate_xml_input(xml_path)
+        return self.db.save_heart_breathing_samples(_iter_heart_breathing_samples(xml_path))
 
     def sync(self) -> Dict[str, Any]:
         """Import all immutable JSON archives without reading XML."""
@@ -350,6 +368,57 @@ class AppleHealthImporter:
                     workout.total_calories = total_fallback
 
 
+def _iter_heart_breathing_samples(xml_path: Path) -> Iterator[Dict[str, Any]]:
+    with xml_path.open("rb") as handle:
+        events = ET.iterparse(handle, events=("start", "end"))
+        _, root = next(events)
+        if root.tag != "HealthData":
+            raise ValueError("Expected a HealthData XML export.")
+
+        depth = 1
+        for event, elem in events:
+            if event == "start":
+                depth += 1
+                continue
+            if depth == 2:
+                if elem.tag == "Record":
+                    raw_type = elem.get("type", "")
+                    sample_type = raw_type.removeprefix(QUANTITY_TYPE_PREFIX)
+                    if raw_type.startswith(QUANTITY_TYPE_PREFIX) and sample_type in HEART_BREATHING_TYPES:
+                        yield _parse_heart_breathing_sample(elem, sample_type)
+                root.remove(elem)
+            depth -= 1
+
+
+def _parse_heart_breathing_sample(elem: ET.Element, sample_type: str) -> Dict[str, Any]:
+    attrs = elem.attrib
+    try:
+        value = float(attrs["value"])
+        start = _parse_health_datetime(attrs["startDate"])
+        end = _parse_health_datetime(attrs["endDate"])
+        created = _parse_health_datetime(attrs["creationDate"]) if attrs.get("creationDate") else None
+        unit = attrs["unit"]
+        if not math.isfinite(value) or not unit or end < start:
+            raise ValueError
+    except (KeyError, ValueError):
+        raise ValueError(f"Invalid {sample_type} sample in the Apple Health export.") from None
+
+    sample = {
+        "sample_type": sample_type,
+        "value": value,
+        "unit": unit,
+        "started_at": _format_datetime(start.astimezone(UTC)),
+        "ended_at": _format_datetime(end.astimezone(UTC)),
+        "creation_date": _format_datetime(created.astimezone(UTC)) if created else None,
+        "source_name": attrs.get("sourceName"),
+        "source_version": attrs.get("sourceVersion"),
+        "device": attrs.get("device"),
+        "metadata_json": json.dumps(_extract_metadata_entries(elem), sort_keys=True),
+    }
+    sample["id"] = hashlib.sha256(json.dumps(sample, sort_keys=True).encode("utf-8")).hexdigest()
+    return sample
+
+
 def _parse_health_datetime(value: str) -> datetime:
     """Parse Apple Health export datetimes."""
     return datetime.strptime(value, "%Y-%m-%d %H:%M:%S %z")
@@ -443,7 +512,7 @@ def _normalize_activity_type(raw_activity_type: str) -> str:
 
 
 def _extract_metadata_entries(elem: ET.Element) -> Dict[str, str]:
-    """Extract workout metadata entries into a dict."""
+    """Extract Apple Health metadata entries into a dict."""
     metadata: Dict[str, str] = {}
     for child in elem:
         if child.tag != "MetadataEntry":

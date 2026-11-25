@@ -65,6 +65,7 @@ uv run main.py <command>
 | `strong-analyze` | Sync Strong data and refresh monthly analysis for Weightlifting |
 | `apple-health-sync` | Import local DDU Apple Health JSON archives, preserving existing history |
 | `apple-health-analyze` | Import Apple Health JSON archives and recompute monthly workout metrics |
+| `apple-health-import-heart-breathing [xml_path]` | Import individual heart and breathing samples from Apple Health XML |
 | `{source}-sync` | Sync one source |
 | `{source}-analyze` | Sync and analyze one source, or use `--local` to analyze existing data |
 

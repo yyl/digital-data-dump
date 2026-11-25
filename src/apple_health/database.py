@@ -1,12 +1,18 @@
-"""SQLite database manager for Apple Health workout data."""
+"""SQLite database manager for Apple Health data."""
 
 import sqlite3
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 from ..config import Config
 from ..database import BaseDatabase
-from .models import RAW_TABLES, RAW_INDEXES, JSON_TABLES
+from .models import (
+    CREATE_HEART_BREATHING_SAMPLES_INDEX,
+    CREATE_HEART_BREATHING_SAMPLES_TABLE,
+    JSON_TABLES,
+    RAW_INDEXES,
+    RAW_TABLES,
+)
 
 
 class AppleHealthDatabase(BaseDatabase):
@@ -107,6 +113,27 @@ class AppleHealthDatabase(BaseDatabase):
                 ],
             )
         return len(workouts)
+
+    def save_heart_breathing_samples(self, samples: Iterable[Dict[str, Any]]) -> int:
+        """Insert new samples and roll back the import if the input fails."""
+        with self.get_connection() as conn:
+            conn.execute("BEGIN")
+            # Keep the workout schema available when the samples are imported first.
+            for statement in (*RAW_TABLES, *RAW_INDEXES,
+                              CREATE_HEART_BREATHING_SAMPLES_TABLE, CREATE_HEART_BREATHING_SAMPLES_INDEX):
+                conn.execute(statement)
+            return conn.executemany(
+                """
+                INSERT INTO heart_breathing_samples (
+                    id, sample_type, value, unit, started_at, ended_at, creation_date,
+                    source_name, source_version, device, metadata_json
+                ) VALUES (
+                    :id, :sample_type, :value, :unit, :started_at, :ended_at, :creation_date,
+                    :source_name, :source_version, :device, :metadata_json
+                ) ON CONFLICT(id) DO NOTHING
+                """,
+                samples,
+            ).rowcount
 
     def get_stats(self) -> Dict[str, int]:
         """Get counts of stored workouts and analysis rows."""
