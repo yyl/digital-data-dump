@@ -13,6 +13,7 @@ Note: the tree below is shown from the repository root.
 ├── src/
 │   ├── config.py           # Environment configuration and storage resolution
 │   ├── database.py         # Base SQLite connection manager
+│   ├── source_operations.py # Shared source lifecycle and batch execution
 │   ├── comparison.py       # Shared MoM/YoY comparison helpers
 │   ├── time_utils.py       # UTC timestamp helpers
 │   ├── readwise/
@@ -85,9 +86,38 @@ Each source generally follows the same structure:
 | `api_client.py` | External API wrapper for API-backed sources |
 | `sync.py` | Sync orchestration for API-backed sources |
 | `importer.py` | File import path for file-backed sources |
-| `analytics.py` | Monthly rollups written into `analysis` |
+| `analytics.py` | Source-owned monthly rollups and derived tables |
 
-Raw data tables are created during sync/import setup. Derived monthly `analysis` tables are owned by each source's `analytics.py`.
+### Adding or Changing a Source
+
+Keep provider-specific code in `src/<source>/` and reuse shared helpers for
+behavior common to multiple sources. Ingestion initializes and migrates raw
+tables. Analytics owns the derived tables. Each database declares `source_name`,
+`raw_table_names`, and `analysis_table_names` when its derived tables differ
+from the default `analysis` table. Status and reporting use the shared
+[read-only database helpers](#report-and-activity-reads).
+
+Keep sync, local analysis, and refresh as separate operations. Sync acquires and
+stores input data, local analysis computes results from SQLite without provider
+requests, and refresh runs sync before analysis. Advance checkpoints only after
+the covered data is fully fetched and saved. A successful empty fetch, an
+intentional skip, and a failed or incomplete fetch have different outcomes.
+The shared batch runner attempts independent sources and returns failure when
+a selected operation fails.
+
+Register only the features a source participates in.
+
+| Feature | Registration |
+|---------|--------------|
+| CLI, initialization, and status | `source_catalog()` in `main.py` binds the database, sync, analysis, validation, and any source-specific arguments. `src/source_operations.py` runs the lifecycle. |
+| Monthly refresh | `REPORT_SOURCES` in `main.py` selects the sources refreshed before publishing and backfill. `optional_for_reporting` controls whether failed configuration validation skips a source. |
+| Monthly Markdown | `MarkdownGenerator.report_sections()` registers the section and tag. `Publisher.report_sources()` supplies eligible months and section data. |
+| Monthly activity YAML | `DataGenerator.activity_sources()` registers the output file and its record reader. |
+
+Document source setup in [SOURCES.md](../docs/SOURCES.md), CLI usage in the
+[main README](../README.md#basic-usage), and published formats and privacy rules
+in [SUMMARY.md](../docs/SUMMARY.md). Keep source schema and calculation details
+in this guide.
 
 ## Metric Definitions and Changes
 
@@ -137,11 +167,6 @@ The `src/publish/` package contains the publishing layer.
 
 ## Publish and Backfill Flows
 
-The CLI source catalog in `main.py` binds database factories, sync and analysis
-callables, and any source-specific arguments. `src/source_operations.py` runs
-those operations and reports failures. Status opens existing databases read-only
-and can show raw counts even before monthly analysis is available.
-
 ### Publish
 
 Supported paths:
@@ -167,25 +192,8 @@ The scheduled `pipeline --last-month` refreshes the reporting sources once, then
 renders the draft and both activity windows before delivering any files.
 `--skip-sync-analysis` reuses the current local analysis on a delivery retry.
 
-Current activity files:
-
-| File | Source | Fields |
-|------|--------|--------|
-| `reading.yaml` | Readwise | `articles_archived`, `total_words`, `time_spent_minutes`, `avg_reading_speed`, `max_words_per_article`, `median_words_per_article`, `min_words_per_article` |
-| `travel.yaml` | Foursquare | `checkins`, `unique_places` |
-| `movies.yaml` | Letterboxd | `movies_watched`, `minutes_watched`, `avg_rating` |
-| `podcasts.yaml` | Overcast | `feeds_added`, `feeds_removed`, `episodes_played`, `minutes_listened` |
-| `workouts.yaml` | Apple Health | `workouts`, `total_minutes`, `total_calories` |
-| `writing.yaml` | Blog | `posts`, `total_words`, `unique_tags` |
-| `books.yaml` | Hardcover | `books_finished`, `avg_rating` |
-| `code.yaml` | GitHub | Combined commits and repos touched, plus public/private commits, repos touched, additions, and deletions |
-| `sleep.yaml` | Oura Ring | `median_sleep_score`, `avg_sleep_score`, `median_readiness_score`, `avg_readiness_score` |
-| `surfing.yaml` | Surfilog | `sessions`, `waves`, `total_duration_seconds`, `surf_time_seconds`, `surf_distance_m`, `paddling_distance_m`, `max_speed_kmh`, `longest_wave_m`, `max_wave_seconds` |
-| `bouldering.yaml` | Kaya | `climbing_days`, `sends`, `flashes`, `onsights`, `grade_counts`, optional `hardest_v_grade` |
-| `weightlifting.yaml` | Strong | `workouts` |
-
-Apple Health monthly analysis supplies `workouts.yaml`. Strong monthly analysis
-supplies `weightlifting.yaml`.
+See [activity data files](../docs/SUMMARY.md#activity-data-files) for the export
+names, source ownership, fields, and empty-file behavior.
 
 ## Source-Specific Technical Notes
 
@@ -374,10 +382,10 @@ export and records CSV provenance. Legacy CSV-only databases remain readable.
 
 ### Strong metric definitions
 
-The Weightlifting section reads raw `workouts` and `exercises` without changing
-the existing monthly `analysis` schema or activity YAML files. Strong analysis
-months participate in publish's latest-month selection. Apple Health continues
-to supply the separate Workout section and `workouts.yaml`.
+The Weightlifting section reads raw `workouts` and `exercises`. A month is
+eligible for the report when its latest Strong workout includes exercises.
+The monthly `analysis` table supplies counts for `weightlifting.yaml`. Apple
+Health supplies the separate Workout section and `workouts.yaml`.
 
 - **Session selection:** the latest `started_at` inside the report's calendar
   month, interpreted as the local timestamp recorded in the CSV or derived from
@@ -674,7 +682,7 @@ stderr, standard exception logging, and caught-error output.
 ### Oura Ring
 
 - Syncs daily health summaries and detailed sleep documents from the Oura v2 REST API into `oura.db`
-- Uses OAuth2 authorization code flow; tokens are persisted to `.env` and refreshed automatically on 401
+- Uses OAuth2 authorization code flow. Sync refreshes upfront when a refresh token is available and saves renewed tokens to `.env`.
 - Fetches seven daily summary types: activity, sleep, readiness, stress, resilience, SpO2, cardiovascular age
 - Fetches sleep periods from `/v2/usercollection/sleep` and bedtime recommendations from `/v2/usercollection/sleep_time`
 - Nested `contributors` objects in the API response are flattened into columns (e.g., `contributors.deep_sleep` → `contributor_deep_sleep`)
@@ -1066,10 +1074,10 @@ Connections use `sqlite3.Row`, so rows are accessed by column name.
 
 ### Report and Activity Reads
 
-Report generation, latest-month selection, Strong session summaries, and activity
-YAML exports use `BaseDatabase.read_connection()` or `fetch_rows()`. Published
-source database classes declare `source_name` and `raw_table_names`; the shared
-reader applies one policy to all of them:
+Status, report generation, latest-month selection, Strong session summaries,
+and activity YAML exports use `BaseDatabase.read_connection()` or `fetch_rows()`.
+Status can show raw counts before monthly analysis exists. The shared reader
+applies one readiness policy:
 
 | State | Behavior |
 | --- | --- |
@@ -1141,7 +1149,11 @@ make test-ci
 uv run main.py publish --dry-run
 ```
 
-When docs or behavior change around the monthly report or activity files, `publish --dry-run` is the most useful end-to-end validation step.
+Run `make test-ci` after code changes and before committing. Use
+`publish --dry-run` to verify Markdown and report assets. For changes spanning
+sync, analysis, and delivery, exercise the affected commands with a temporary
+vault copy and local publishing destinations. The
+[refactor verification](../docs/REFACTOR.md#local-end-to-end-run) shows an example.
 
 ## Cloud Deployment
 
@@ -1195,7 +1207,7 @@ Currently isolated:
 
 Both the Charles Schwab and Oura Ring APIs use rotating OAuth refresh tokens (Oura refresh tokens are single-use with rotation upon every refresh; Schwab refresh tokens expire after 7 days). To automate renewals without giving CI write access to GitHub Secrets (which would require a highly privileged PAT and expand the security blast radius), we use the **private data repository** to persist updated tokens:
 
-1. **Bootstrap/Fallback**: Checks for `data/.oura_tokens.json` (in `monthly-pipeline.yml`) or `data/.schwab_tokens.json` (in `schwab-sync.yml`) in the checked-out data repository. If the file does not exist, it falls back to the static environment secrets.
+1. **Bootstrap**: Load access and refresh tokens from `data/.oura_tokens.json` (in `monthly-pipeline.yml`) or `data/.schwab_tokens.json` (in `schwab-sync.yml`) in the checked-out data repository. Each missing token falls back to its corresponding Actions secret.
 2. **Execution**: The sync managers proactively refresh tokens upfront when a refresh token is present.
 3. **Token Refresh**: If the API client refreshes the access token, the new access and refresh tokens are written to `.env` via the shared `save_tokens_to_env` helper (`src/token_store.py`).
 4. **Persistence**: The workflow extracts these tokens from `.env` and writes them to `data/.oura_tokens.json` or `data/.schwab_tokens.json`.

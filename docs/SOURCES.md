@@ -4,6 +4,9 @@ This project supports the following sources for sync and monthly analysis.
 
 All source data is stored in local SQLite databases under `<storage-root>/data/`. File-based imports are read from `<storage-root>/files/`.
 
+For shared CLI behavior, including local analysis and monthly publication, see
+the [CLI guide](../README.md#basic-usage).
+
 ## Readwise
 
 Tracks books, highlights, and Reader documents.
@@ -163,7 +166,8 @@ Normal `publish` refreshes Strong automatically; `--dry-run` and
 `--skip-sync-analysis` use existing database contents.
 
 Strong powers the published **Weightlifting** section, with the latest workout's
-best set weight per exercise and MoM/YoY comparisons when available. API reports
+best set weight per exercise and MoM/YoY comparisons when available. Monthly
+workout totals are exported in `weightlifting.yaml`. API reports
 identify the configured weight unit. CSV exports do not identify weight units:
 keep the same Strong unit settings between exports so the values remain
 comparable. See the
@@ -296,6 +300,9 @@ Tracks finished books from Hardcover.
 **Required in `.env`**
 - `HARDCOVER_ACCESS_TOKEN`
 
+The [monthly GitHub Actions workflow](../.github/workflows/monthly-pipeline.yml)
+also requires `HARDCOVER_ACCESS_TOKEN` as an Actions secret for scheduled refresh.
+
 ## GitHub
 
 Tracks your authored commits on the default branch of owned, non-fork public
@@ -358,6 +365,11 @@ Syncs daily health summaries, sleep periods, and bedtime recommendations from Ou
 - `OURA_REFRESH_TOKEN` (auto-populated after first auth)
 
 Register an application at [cloud.ouraring.com/oauth/applications](https://cloud.ouraring.com/oauth/applications), add your client ID and secret to `.env`, then run `oura-sync`. The CLI will open your browser for authorization and save the tokens automatically.
+
+For GitHub Actions, set `OURA_CLIENT_ID` and `OURA_CLIENT_SECRET` as repository
+secrets. The workflow prefers tokens saved in the private vault and uses
+`OURA_ACCESS_TOKEN` and `OURA_REFRESH_TOKEN` secrets as fallbacks. See the
+[token persistence flow](../src/README.md#oauth-token-persistence-schwab--oura).
 
 Oura syncs activity, sleep, readiness, and daily stress, plus optional resilience,
 SpO2, and cardiovascular age. The optional endpoints can require supported

@@ -17,7 +17,8 @@ For the iPhone Apple Health, Strong, and Kaya upload workflows, see [docs/SHORTC
 
 If you want the report format and layout, see [docs/SUMMARY.md](docs/SUMMARY.md).
 
-If you want developer and implementation details, see [src/README.md](src/README.md).
+For developer details, including how to register a source and its outputs, see
+the [source integration guide](src/README.md#adding-or-changing-a-source).
 
 For metric calculation rules and how changes are tracked, see
 [metric definitions](src/README.md#metric-definitions-and-changes).
@@ -46,8 +47,8 @@ uv run main.py <command>
 
 | Command | Description |
 |---------|-------------|
-| `init` | Initialize all databases |
-| `sync` | Sync all supported sources |
+| `init` | Initialize raw schemas that D3 manages |
+| `sync` | Sync configured sources |
 | `analyze` | Sync configured sources and recompute monthly analysis, or use `--local` to analyze existing data |
 | `publish` | Generate and publish a draft monthly report |
 | `backfill` | Refresh analysis and regenerate blog activity YAML files |
@@ -75,11 +76,18 @@ uv run main.py <command>
 uv run main.py sync
 ```
 
+Aggregate `sync` and `analyze` attempt independent sources and return a nonzero
+exit status if a selected operation fails. Check each source’s setup in
+[SOURCES.md](docs/SOURCES.md).
+
 ### Recompute Monthly Analysis
 
 ```bash
 uv run main.py analyze --local
 ```
+
+Use `--local` to recompute from stored data without contacting providers. The
+flag also works on individual commands such as `oura-analyze`.
 
 ### Preview the Monthly Report Locally
 
@@ -102,10 +110,9 @@ Useful publish flags:
 - `--skip-sync-analysis`: publish from existing analysis data
 - `--last-month`: publish the previous calendar month when report data is available for it
 
-Report previews and activity exports read existing databases in read-only mode.
-Missing or uninitialized sources, and sources whose analysis has not run, are
-omitted with a diagnostic. An incomplete schema or unreadable database stops
-generation and identifies the source so it can be repaired before publishing.
+The dry run reads existing source databases and skips sync and analysis. See
+[report data availability](docs/SUMMARY.md#high-level-layout) for how missing
+or unreadable inputs affect generation.
 
 ### Regenerate Activity Data Files
 
@@ -113,7 +120,8 @@ generation and identifies the source so it can be repaired before publishing.
 uv run main.py backfill
 ```
 
-`backfill` refreshes source analysis, commits full-history activity files to the data repo, and commits a blog copy limited to the rolling one-year lookback window to the configured blog repo.
+`backfill` refreshes the reporting sources and publishes both
+[activity export windows](docs/SUMMARY.md#activity-data-files).
 
 Use `backfill --skip-sync-analysis` or `pipeline --skip-sync-analysis` to retry
 delivery from existing analysis.

@@ -6,7 +6,10 @@ This document describes what the generated monthly report looks like.
 
 The `publish` command generates a draft markdown wrap-up post for a single month.
 
-The report is built from each source's monthly analysis data and includes the latest available month across the initialized sources. With `--last-month`, it includes the previous calendar month instead, requiring analysis data for that month.
+By default, the report uses the latest month with data eligible for a report
+section. Most sections use monthly analysis. Weightlifting uses raw Strong
+workouts, and its latest workout in the month must include exercises. With
+`--last-month`, the previous calendar month must have eligible report data.
 
 ## Output Format
 
@@ -43,9 +46,9 @@ The report contains:
 
 Only sections with available data are included.
 
-Missing or uninitialized databases and unavailable analysis are reported in CLI
+Missing or uninitialized databases and unavailable inputs are reported in CLI
 diagnostics and omitted from the post. Incomplete schemas and SQLite read errors
-stop generation with the source name; they do not produce a partial report.
+stop generation and identify the source.
 
 ## What's New
 
@@ -293,21 +296,29 @@ These appear inline with top-line metrics.
 
 ## Activity Data Files
 
-The related `backfill` workflow regenerates monthly YAML data files under
-`data/activity/` for the blog. A source with available analysis and an empty
-window writes an empty YAML list. An unavailable source leaves its existing
-export alone.
+`backfill` and `pipeline` publish monthly YAML files under `data/activity/`.
+The data repository receives full history. The blog receives a rolling window
+starting with the same calendar month one year earlier, inclusive. A source
+with available analysis and an empty window writes `[]`. An unavailable source
+leaves its existing export in place.
 
-Those files are not the markdown report itself, but they are derived from the same monthly analysis layer.
+Each record includes a `month` in `YYYY-MM` format.
 
-`surfing.yaml` includes `month`, `sessions`, `waves`, `total_duration_seconds`,
-`surf_time_seconds`, `surf_distance_m`, `paddling_distance_m`, `max_speed_kmh`,
-`longest_wave_m`, and `max_wave_seconds`.
+| File | Source | Other fields |
+|------|--------|--------------|
+| `reading.yaml` | Readwise | `articles_archived`, `total_words`, `time_spent_minutes`, `avg_reading_speed`, `max_words_per_article`, `median_words_per_article`, `min_words_per_article` |
+| `travel.yaml` | Foursquare | `checkins`, `unique_places` |
+| `movies.yaml` | Letterboxd | `movies_watched`, `minutes_watched`, `avg_rating` |
+| `podcasts.yaml` | Overcast | `feeds_added`, `feeds_removed`, `episodes_played`, `minutes_listened` |
+| `workouts.yaml` | Apple Health | `workouts`, `total_minutes`, `total_calories` |
+| `writing.yaml` | Blog | `posts`, `total_words`, `unique_tags` |
+| `books.yaml` | Hardcover | `books_finished`, `avg_rating` |
+| `code.yaml` | GitHub | `commits`, `repos_touched`, and available public/private commit, repository, and line-change counts |
+| `sleep.yaml` | Oura Ring | Available `median_sleep_score`, `avg_sleep_score`, `median_readiness_score`, and `avg_readiness_score` values |
+| `surfing.yaml` | Surfilog | `sessions`, `waves`, `total_duration_seconds`, `surf_time_seconds`, `surf_distance_m`, `paddling_distance_m`, `max_speed_kmh`, `longest_wave_m`, `max_wave_seconds` |
+| `bouldering.yaml` | Kaya | `climbing_days`, `sends`, `flashes`, `onsights`, `grade_counts`, optional `hardest_v_grade` |
+| `weightlifting.yaml` | Strong | `workouts`, the number of Strong workouts logged that month |
 
-`bouldering.yaml` includes `month`, `climbing_days`, `sends`, `flashes`, and
-`onsights`, plus a `grade_counts` mapping of grade to send count. An empty grade
+In `bouldering.yaml`, `grade_counts` maps grades to send counts. An empty grade
 key counts ungraded sends. When available, `hardest_v_grade` holds the numeric
 part of the highest V grade sent, such as `4` for V4.
-
-`weightlifting.yaml` includes `month` and `workouts`, the number of Strong
-workouts logged that month.

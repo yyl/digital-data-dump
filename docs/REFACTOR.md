@@ -1,5 +1,9 @@
 # D3 refactor review
 
+This review records the refactor and its verification. For current conventions,
+see [AGENTS.md](../AGENTS.md) and the
+[source integration guide](../src/README.md#adding-or-changing-a-source).
+
 Reviewed against `e03b1a7`. The review covered all 14 source packages, the CLI,
 scheduled workflows, SQLite ingestion and analysis, and Markdown and activity
 exports. The baseline was 512 passing tests on Python 3.12.9 and a successful
