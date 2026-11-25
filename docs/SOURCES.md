@@ -94,6 +94,7 @@ Tracks podcast subscriptions and played episodes.
 **Commands**
 - `overcast-sync`
 - `overcast-analyze`
+- `overcast-publish-latest`
 
 **Optional in `.env` for direct export**
 - `OVERCAST_COOKIE`
@@ -102,7 +103,7 @@ Tracks podcast subscriptions and played episodes.
 
 `overcast-sync` prefers direct export when either `OVERCAST_COOKIE` or `OVERCAST_EMAIL` plus `OVERCAST_PASSWORD` is configured. You do not need all three values: either copy the `o` cookie from an authenticated Overcast browser session into `OVERCAST_COOKIE`, or use your Overcast account email and password. If neither direct auth option is available, place an Overcast OPML export matching `overcast*.opml` in `<storage-root>/files/`.
 
-The monthly GitHub Actions workflow can fetch the latest Overcast OPML export directly when you add either `OVERCAST_COOKIE` or `OVERCAST_EMAIL` plus `OVERCAST_PASSWORD` as repository Actions secrets.
+The monthly pipeline and the daily Overcast Activity workflow share the Overcast Actions secrets in the D3 repository. `OVERCAST_EMAIL` and `OVERCAST_PASSWORD` let D3 obtain a session on each run. With no live login configured, the daily workflow uses the saved OPML and Overcast database in the private vault, so the card advances when saved data is updated. It uses the same blog and vault access settings as the monthly pipeline.
 
 To get `OVERCAST_COOKIE` from Chrome:
 

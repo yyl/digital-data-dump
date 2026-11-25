@@ -420,6 +420,12 @@ def main(argv=None) -> int:
     pipeline.add_argument("--skip-sync-analysis", action="store_true", help="Use current analysis")
     pipeline.set_defaults(operation=cmd_pipeline)
 
+    from src.overcast.activity_snapshot import publish_latest_podcast
+
+    overcast_latest = commands.add_parser("overcast-publish-latest", help="Publish the latest played episode to the blog")
+    overcast_latest.add_argument("--dry-run", action="store_true", help="Preview the snapshot without updating GitHub")
+    overcast_latest.set_defaults(operation=publish_latest_podcast)
+
     for source in sources:
         _add_source_commands(commands, source)
 

@@ -1,0 +1,48 @@
+name: Publish Latest Overcast Episode
+
+on:
+  schedule:
+    - cron: '25 8 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: overcast-activity
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check out saved Overcast data
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ secrets.DATA_REPO_OWNER || 'yyl' }}/${{ secrets.DATA_REPO_NAME || 'digital-data-vault' }}
+          token: ${{ secrets.DATA_REPO_GITHUB_TOKEN || secrets.DATA_REPO_PAT || secrets.BLOG_GITHUB_TOKEN }}
+          path: _data_repo
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /data/overcast.db
+            /files/overcast*.opml
+
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+
+      - name: Publish the latest played episode
+        env:
+          DATA_REPO_LOCAL_PATH: ${{ github.workspace }}/_data_repo
+          OVERCAST_COOKIE: ${{ secrets.OVERCAST_COOKIE }}
+          OVERCAST_EMAIL: ${{ secrets.OVERCAST_EMAIL }}
+          OVERCAST_PASSWORD: ${{ secrets.OVERCAST_PASSWORD }}
+          BLOG_GITHUB_TOKEN: ${{ secrets.BLOG_GITHUB_TOKEN }}
+          BLOG_REPO_OWNER: ${{ secrets.BLOG_REPO_OWNER }}
+          BLOG_REPO_NAME: ${{ secrets.BLOG_REPO_NAME }}
+          BLOG_GITHUB_TARGET_BRANCH: ${{ secrets.BLOG_GITHUB_TARGET_BRANCH }}
+        run: uv run --locked --python "$(cat .python-version)" main.py overcast-publish-latest

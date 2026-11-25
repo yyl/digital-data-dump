@@ -51,6 +51,7 @@ uv run main.py <command>
 | `analyze` | Sync configured sources and recompute monthly analysis, or use `--local` to analyze existing data |
 | `publish` | Generate and publish a draft monthly report |
 | `backfill` | Refresh analysis and regenerate blog activity YAML files |
+| `overcast-publish-latest` | Refresh the blog’s latest played podcast card. Use `--dry-run` to preview the snapshot |
 | `pipeline` | Refresh the reporting sources once and publish the draft and activity YAML files |
 | `status` | Show current sync status |
 | `workflowy-sync` | Sync a full Workflowy node export into the local mirror |

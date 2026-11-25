@@ -16,9 +16,9 @@ from .models import ADD_DURATION_COLUMN
 class OvercastImporter:
     """Imports Overcast data from OPML export files."""
     
-    def __init__(self):
+    def __init__(self, db: OvercastDatabase | None = None):
         """Initialize importer."""
-        self.db = OvercastDatabase()
+        self.db = db if db is not None else OvercastDatabase()
 
     @staticmethod
     def get_authenticated_cookie() -> Optional[str]:
@@ -75,7 +75,7 @@ class OvercastImporter:
         
         return opml_files[0] if opml_files else None
     
-    def sync(self) -> Dict[str, int] | None:
+    def sync(self, *, enrich_durations: bool = True) -> Dict[str, int] | None:
         """Auto-discover latest export and import it.
         
         Returns:
@@ -125,7 +125,8 @@ class OvercastImporter:
             print(f"  playlists: {stats['playlists']}")
             
             # Enrich with durations
-            self._enrich_durations()
+            if enrich_durations:
+                self._enrich_durations()
             
         except subprocess.TimeoutExpired:
             raise RuntimeError("overcast-to-sqlite timed out after 60 seconds.") from None

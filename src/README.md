@@ -344,6 +344,7 @@ Letterboxd analysis writes:
 - Falls back to `files/overcast*.opml` import otherwise
 - `overcast-sync` also fetches missing episode durations from live RSS feeds using title matching
 - Those duration lookups populate `episodes.duration_seconds`, which enables monthly `minutes_listened`
+- The daily Activity workflow runs the same importer against a temporary database with RSS enrichment disabled. It compares the imported episode with vault history and only publishes a changed `data/activity/latest_podcast.json` snapshot. The vault database is read-only for this workflow.
 
 ### Strong
 
