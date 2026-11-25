@@ -280,17 +280,20 @@ class TestFoursquareAPIClient:
 
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"id": "venue1", "name": "Venue 1"}
+        mock_response.json.return_value = {"fsq_place_id": "venue1", "name": "Venue 1"}
         mock_session.get.return_value = mock_response
 
         details = client.fetch_place_details("venue1")
 
-        assert details == {"id": "venue1", "name": "Venue 1"}
+        assert details == {"fsq_place_id": "venue1", "name": "Venue 1"}
 
         # Verify headers
         args, kwargs = mock_session.get.call_args
         headers = kwargs["headers"]
         assert headers["Authorization"] == "Bearer test_api_key"
+        fields = kwargs["params"]["fields"].split(",")
+        assert "fsq_place_id" in fields
+        assert "fsq_id" not in fields
 
     def test_fetch_place_details_no_key(self, mock_config, mock_session):
         """Test fetch_place_details returns None if no API key."""

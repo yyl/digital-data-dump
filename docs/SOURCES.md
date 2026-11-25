@@ -55,7 +55,12 @@ Tracks Swarm/Foursquare checkins and place visits.
 - `FOURSQUARE_CLIENT_SECRET`
 - `FOURSQUARE_API_KEY`
 
-Use the client ID and secret when you need to run the OAuth flow again. The API key is optional and is used to enrich venue details.
+The sync reads checkins for the one Swarm account associated with its OAuth
+token. For an unapproved pay-as-you-go Foursquare organization, use a Swarm
+account that belongs to the developer organization that owns the OAuth project.
+Use the client ID and secret when you need to run the OAuth flow again. If you
+replace the token, update `FOURSQUARE_ACCESS_TOKEN` in GitHub Actions as well
+if you use the monthly workflow. The optional API key enriches venue details.
 
 Travel maps use the stored place coordinates and OpenStreetMap tiles, with no
 additional API key. The first preview or publish downloads the visible map tiles

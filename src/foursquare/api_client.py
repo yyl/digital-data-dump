@@ -289,7 +289,7 @@ class FoursquareAPIClient:
         }
         
         params = {
-            "fields": "fsq_id,name,latitude,longitude,categories,location,website,tel,email"
+            "fields": "fsq_place_id,name,latitude,longitude,categories,location,website,tel,email"
         }
         
         # Try the request but don't fail hard - place details are optional
