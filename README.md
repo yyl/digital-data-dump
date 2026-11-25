@@ -53,6 +53,7 @@ uv run main.py <command>
 | `publish` | Generate and publish a draft monthly report |
 | `backfill` | Refresh analysis and regenerate blog activity YAML files |
 | `overcast-publish-latest` | Refresh the blog’s latest played podcast card. Use `--dry-run` to preview the snapshot |
+| `apple-health-publish-latest` | Refresh the blog’s latest workout card from imported Apple Health entries. Use `--dry-run` to preview the snapshot |
 | `pipeline` | Refresh the reporting sources once and publish the draft and activity YAML files |
 | `status` | Show current sync status |
 | `workflowy-sync` | Sync a full Workflowy node export into the local mirror |

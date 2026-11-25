@@ -1,0 +1,50 @@
+name: Publish Latest Apple Health Workout
+
+on:
+  schedule:
+    - cron: '45 8 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apple-health-activity
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check out saved Apple Health workouts and uploads
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ secrets.DATA_REPO_OWNER || 'yyl' }}/${{ secrets.DATA_REPO_NAME || 'digital-data-vault' }}
+          token: ${{ secrets.DATA_REPO_GITHUB_TOKEN || secrets.DATA_REPO_PAT || secrets.BLOG_GITHUB_TOKEN }}
+          path: _data_repo
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /data/apple_health.db
+            /files/apple_health/actions/batches/*.json
+
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+
+      - name: Import uploaded workouts
+        env:
+          DATA_REPO_LOCAL_PATH: ${{ github.workspace }}/_data_repo
+        run: uv run --locked --python "$(cat .python-version)" main.py apple-health-sync
+
+      - name: Publish the latest workout
+        env:
+          DATA_REPO_LOCAL_PATH: ${{ github.workspace }}/_data_repo
+          BLOG_GITHUB_TOKEN: ${{ secrets.BLOG_GITHUB_TOKEN }}
+          BLOG_REPO_OWNER: ${{ secrets.BLOG_REPO_OWNER }}
+          BLOG_REPO_NAME: ${{ secrets.BLOG_REPO_NAME }}
+          BLOG_GITHUB_TARGET_BRANCH: ${{ secrets.BLOG_GITHUB_TARGET_BRANCH }}
+        run: uv run --locked --python "$(cat .python-version)" main.py apple-health-publish-latest

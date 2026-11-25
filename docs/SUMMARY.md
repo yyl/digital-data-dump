@@ -322,3 +322,12 @@ Each record includes a `month` in `YYYY-MM` format.
 In `bouldering.yaml`, `grade_counts` maps grades to send counts. An empty grade
 key counts ungraded sends. When available, `hardest_v_grade` holds the numeric
 part of the highest V grade sent, such as `4` for V4.
+
+## Latest Workout Card
+
+The blog homepage reads `data/activity/latest_workout.json`. The snapshot
+contains `title` (workout type), `detail` (duration in whole minutes or seconds
+for workouts under a minute, empty when unavailable), and `date` (the UTC start
+day in `YYYY-MM-DD`).
+Walks are excluded, as in the monthly workout report. The snapshot includes
+only these three fields.

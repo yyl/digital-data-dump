@@ -433,11 +433,16 @@ def main(argv=None) -> int:
     pipeline.add_argument("--skip-sync-analysis", action="store_true", help="Use current analysis")
     pipeline.set_defaults(operation=cmd_pipeline)
 
+    from src.apple_health.activity_snapshot import publish_latest_workout
     from src.overcast.activity_snapshot import publish_latest_podcast
 
     overcast_latest = commands.add_parser("overcast-publish-latest", help="Publish the latest played episode to the blog")
     overcast_latest.add_argument("--dry-run", action="store_true", help="Preview the snapshot without updating GitHub")
     overcast_latest.set_defaults(operation=publish_latest_podcast)
+
+    workout_latest = commands.add_parser("apple-health-publish-latest", help="Publish the latest Apple Health workout to the blog")
+    workout_latest.add_argument("--dry-run", action="store_true", help="Preview the snapshot without updating GitHub")
+    workout_latest.set_defaults(operation=publish_latest_workout)
 
     heart_breathing = commands.add_parser(
         "apple-health-import-heart-breathing", help="Import heart and breathing samples from Apple Health XML"

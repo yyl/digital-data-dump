@@ -221,6 +221,12 @@ state counts. The technical review queries are documented in `src/README.md`.
 
 Apple Health is the source used for published workout metrics and `workouts.yaml`.
 
+The latest-workout workflow imports vault uploads daily before refreshing the
+blog homepage card. It uses the existing vault checkout and blog publishing
+credentials. To refresh from your local vault, run `apple-health-sync` and
+then `apple-health-publish-latest`. Add `--dry-run` to the publish command to
+preview the card locally.
+
 Use **Export All Health Data** in the iPhone Health app and unpack the export to
 import heart rate, resting heart rate, walking heart rate average, one-minute
 heart-rate recovery, blood oxygen, VO₂ max, and respiratory rate. Place the
