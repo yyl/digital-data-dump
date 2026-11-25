@@ -77,7 +77,16 @@ class GitHubSyncManager:
         self.db.init_tables()
         
         repos = self.api.get_owned_repos()
-        self.db.update_repo_visibility(repos)
+        current_names = {repo["full_name"].casefold(): repo["full_name"] for repo in repos}
+        aliases = {}
+        if current_names:
+            for stored_name in self.db.get_stored_repo_names():
+                if stored_name.casefold() in current_names:
+                    continue
+                resolved = self.api.get_repository_full_name(stored_name)
+                if resolved and resolved.casefold() in current_names:
+                    aliases[stored_name] = current_names[resolved.casefold()]
+        self.db.update_repo_visibility(repos, aliases=aliases)
         
         total_commits = 0
         repos_with_commits = 0

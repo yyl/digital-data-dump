@@ -159,6 +159,15 @@ class GitHubActivityClient:
         }
         print(f"Found {len(repos)} owned repos (non-fork, including accessible private repos)")
         return list(repos.values())
+
+    def get_repository_full_name(self, full_name: str) -> str | None:
+        """Resolve a stored name through GitHub's repository redirects."""
+        try:
+            return self._get(f"/repos/{full_name}").json()["full_name"]
+        except requests.HTTPError as error:
+            if error.response is not None and error.response.status_code in (403, 404):
+                return None
+            raise
     
     def get_commits(
         self, owner: str, repo: str, since: Optional[str] = None

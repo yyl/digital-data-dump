@@ -3,6 +3,18 @@
 Record meaningful project changes here, newest first. Each entry explains what
 changed, why, and where to find the design, usage, and implementation details.
 
+## 2026-11-25 — Reconcile renamed GitHub repositories
+
+D3 previously kept commits under their original repository name after a
+rename. Sync now updates stored names when GitHub resolves them to a repository
+in discovery. Reanalysis can consolidate historical repositories touched, apply
+current visibility, and fill missing line counts and comparisons. Commit SHAs,
+month boundaries, and the activity export schema stay the same. Former names
+without a discoverable destination retain their stored history.
+
+See the [GitHub metric definitions](../src/README.md#github-metric-definitions)
+and [regression coverage](../tests/test_github_private_activity.py).
+
 ## 2026-11-20 — Add monthly Kaya bouldering metrics
 
 Adds CSV import for Kaya. Stable local IDs let full and partial exports add new

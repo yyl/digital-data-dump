@@ -538,8 +538,11 @@ for the change from public-only metrics to public/private metrics.
 - The raw table has a **global SHA primary key**, not `(repo, SHA)`. A SHA found
   in multiple repositories is stored once; ordinary sync retains its existing
   repository association. Repo counts therefore follow the association retained
-  in the database. Repositories are identified by stored `owner/name` strings,
-  not immutable repository IDs; renames/transfers have no alias reconciliation.
+  in the database. Repositories are identified by stored `owner/name` strings.
+  When GitHub resolves a former name to a currently discovered repository, sync
+  moves the stored commits to that name before refreshing visibility and fetching
+  commits. Names with no resolvable redirect or with a destination outside
+  discovery retain their existing history.
 - Count stored commits with a non-empty `date_month`. Sync skips entries without
   a SHA or author timestamp. Merge commits are included in these counts.
 
@@ -607,7 +610,8 @@ token access can change historical baselines and percentages.
 
 **Refresh and historical changes**
 
-`github-sync` refreshes repository visibility and fetches commits inclusively
+`github-sync` resolves former repository names, refreshes repository visibility,
+and fetches commits inclusively
 from each repo's latest stored author timestamp. Existing SHAs are skipped, so
 same-second siblings can be added without counting existing commits twice. A
 newly discovered repo has no cursor and fetches its accessible default-branch

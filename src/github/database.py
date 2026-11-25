@@ -60,13 +60,28 @@ class GitHubDatabase(BaseDatabase):
                 (additions, deletions, sha),
             )
 
-    def update_repo_visibility(self, repos: List[Dict[str, Any]]) -> None:
-        """Refresh visibility for stored commits, even when no new commits exist.
+    def get_stored_repo_names(self) -> list[str]:
+        """Return the repository names associated with stored commits."""
+        rows = self.fetch_rows(
+            "SELECT DISTINCT repo COLLATE NOCASE AS repo FROM commits ORDER BY repo",
+            required_tables=("commits",),
+        )
+        return [row["repo"] for row in rows]
+
+    def update_repo_visibility(
+        self, repos: List[Dict[str, Any]], *, aliases: dict[str, str] | None = None
+    ) -> None:
+        """Apply confirmed renames and refresh visibility in one transaction.
 
         Hide details for repos no longer discoverable, preserving their last
         known visibility for public/private historical totals.
         """
         with self.get_connection() as conn:
+            if aliases:
+                conn.executemany(
+                    "UPDATE commits SET repo = ? WHERE repo = ? COLLATE NOCASE",
+                    ((current, former) for former, current in aliases.items()),
+                )
             conn.execute("UPDATE commits SET is_discoverable = 0")
             conn.executemany(
                 "UPDATE commits SET is_private = ?, is_discoverable = 1 "

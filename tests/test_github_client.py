@@ -273,6 +273,23 @@ class TestGitHubActivityClient(unittest.TestCase):
         with patch.object(self.client, "_get", side_effect=HTTPErrorClass(response=response)):
             self.assertIsNone(self.client.get_commit_line_stats("owner", "repo", "abc"))
 
+    def test_repository_full_name_reads_canonical_name(self):
+        with patch.object(self.client, "_get") as get:
+            get.return_value.json.return_value = {"full_name": "owner/current"}
+            self.assertEqual(self.client.get_repository_full_name("owner/former"), "owner/current")
+            get.assert_called_once_with("/repos/owner/former")
+
+    def test_repository_name_lookup_skips_inaccessible_repos(self):
+        for status in (403, 404, 500):
+            with self.subTest(status=status):
+                response = MagicMock(status_code=status)
+                with patch.object(self.client, "_get", side_effect=HTTPErrorClass(response=response)):
+                    if status == 500:
+                        with self.assertRaises(HTTPErrorClass):
+                            self.client.get_repository_full_name("owner/former")
+                    else:
+                        self.assertIsNone(self.client.get_repository_full_name("owner/former"))
+
     def test_owned_discovery_preserves_public_repos_with_private_only_token(self):
         def repo(name, private=False, fork=False, owner="test_user"):
             return {

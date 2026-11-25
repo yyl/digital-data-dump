@@ -163,6 +163,47 @@ def test_line_stats_backfill_retries_missing_shas_and_omits_partial_totals(db):
     assert "    - Public: 15 (+50% MoM, N/A YoY)" in publisher.generate_markdown("2026-10")
 
 
+def test_sync_reconciles_a_renamed_repo_before_backfilling_line_stats(db):
+    def stored_commit(sha, repo, author_date):
+        return {
+            "sha": sha, "repo": repo, "author_date": author_date,
+            "date_month": author_date[:7], "is_private": True,
+        }
+
+    db.upsert_commits([
+        stored_commit("old-sha", "user/former", "2026-07-02T12:00:00Z"),
+        stored_commit("known-sha", "user/current", "2026-07-01T12:00:00Z"),
+        stored_commit("unowned-sha", "user/transferred", "2026-06-01T12:00:00Z"),
+    ])
+    db.update_line_stats("known-sha", 5, 2)
+    api = MagicMock()
+    api.get_owned_repos.return_value = [repository("current")]
+    api.get_repository_full_name.side_effect = {"user/former": "user/current",
+                                                 "user/transferred": "other/project"}.get
+    api.get_commits.return_value = [api_commit("old-sha", "Stored commit", "2026-07-02T12:00:00Z")]
+    api.get_commit_line_stats.return_value = (8, 3)
+    manager = GitHubSyncManager(db=db, api=api)
+
+    assert manager.sync() == {"commits": 0, "repos": 0}
+    api.get_commits.assert_called_once_with("user", "current", since="2026-07-02T12:00:00Z")
+    api.get_commit_line_stats.assert_called_once_with("user", "current", "old-sha")
+    GitHubAnalytics(db=db).analyze_commits()
+    publisher = publisher_for(db)
+    july = publisher._get_github_analysis("2026-07")
+    assert (july["commits"], july["repos_touched"], july["public_commits"]) == (2, 1, 2)
+    assert (july["public_additions"], july["public_deletions"]) == (13, 5)
+    with db.get_connection() as conn:
+        excluded = conn.execute(
+            "SELECT repo, is_private, is_discoverable FROM commits WHERE sha = 'unowned-sha'"
+        ).fetchone()
+        assert tuple(excluded) == ("user/transferred", 1, 0)
+
+    api.get_repository_full_name.reset_mock()
+    assert manager.sync() == {"commits": 0, "repos": 0}
+    api.get_repository_full_name.assert_called_once_with("user/transferred")
+    api.get_commit_line_stats.assert_called_once()
+
+
 def test_legacy_public_database_preview_and_migration(tmp_path, monkeypatch):
     monkeypatch.setattr(Config, "DATA_DIR", tmp_path)
     path = tmp_path / "legacy.db"
