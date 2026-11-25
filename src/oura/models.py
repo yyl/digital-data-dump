@@ -1,4 +1,4 @@
-"""SQL schema definitions for Oura Ring daily summary tables."""
+"""SQL schema definitions for Oura Ring data."""
 
 # ==========================================================================
 # Daily Activity
@@ -163,6 +163,28 @@ CREATE TABLE IF NOT EXISTS daily_cardiovascular_age (
 """
 
 # ==========================================================================
+# Sleep Documents
+# ==========================================================================
+
+CREATE_SLEEP_PERIODS_TABLE = """
+CREATE TABLE IF NOT EXISTS sleep_periods (
+    id TEXT PRIMARY KEY NOT NULL,
+    day TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    synced_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);
+"""
+
+CREATE_SLEEP_TIME_TABLE = """
+CREATE TABLE IF NOT EXISTS sleep_time (
+    id TEXT PRIMARY KEY NOT NULL,
+    day TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    synced_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);
+"""
+
+# ==========================================================================
 # Sync State
 # ==========================================================================
 
@@ -186,6 +208,8 @@ RAW_TABLES = [
     CREATE_DAILY_RESILIENCE_TABLE,
     CREATE_DAILY_SPO2_TABLE,
     CREATE_DAILY_CARDIOVASCULAR_AGE_TABLE,
+    CREATE_SLEEP_PERIODS_TABLE,
+    CREATE_SLEEP_TIME_TABLE,
     CREATE_SYNC_STATE_TABLE,
 ]
 
@@ -197,6 +221,8 @@ RAW_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_daily_resilience_day ON daily_resilience(day);",
     "CREATE INDEX IF NOT EXISTS idx_daily_spo2_day ON daily_spo2(day);",
     "CREATE INDEX IF NOT EXISTS idx_daily_cardiovascular_age_day ON daily_cardiovascular_age(day);",
+    "CREATE INDEX IF NOT EXISTS idx_sleep_periods_day ON sleep_periods(day);",
+    "CREATE INDEX IF NOT EXISTS idx_sleep_time_day ON sleep_time(day);",
 ]
 
 # ==========================================================================

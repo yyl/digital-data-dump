@@ -673,12 +673,13 @@ stderr, standard exception logging, and caught-error output.
 
 ### Oura Ring
 
-- Syncs daily health summaries from the Oura v2 REST API into `oura.db`
+- Syncs daily health summaries and detailed sleep documents from the Oura v2 REST API into `oura.db`
 - Uses OAuth2 authorization code flow; tokens are persisted to `.env` and refreshed automatically on 401
 - Fetches seven daily summary types: activity, sleep, readiness, stress, resilience, SpO2, cardiovascular age
+- Fetches sleep periods from `/v2/usercollection/sleep` and bedtime recommendations from `/v2/usercollection/sleep_time`
 - Nested `contributors` objects in the API response are flattened into columns (e.g., `contributors.deep_sleep` → `contributor_deep_sleep`)
 - Incremental sync uses a `sync_state` table tracking the last synced date per data type
-- **Gen 2 vs Gen 3 hardware limitation**: Resilience, SpO2, and cardiovascular age endpoints return 401 on Gen 2 rings or accounts without an active Oura membership. These are detected after one token-refresh attempt and skipped gracefully with a user-facing message instead of retrying
+- Skips resilience, SpO2, and cardiovascular age if Oura denies endpoint access, including explicit missing-scope responses
 - Cursor-based pagination via `next_token` query parameter handles large historical fetches
 - Analysis aggregates daily sleep and readiness scores into monthly medians and averages
 - `publish` includes a "Sleep & Readiness" section with MoM/YoY comparisons
@@ -960,11 +961,18 @@ Data tables:
 - `daily_resilience`
 - `daily_spo2`
 - `daily_cardiovascular_age`
+- `sleep_periods`
+- `sleep_time`
 - `sync_state`
 
 `daily_activity`, `daily_sleep`, `daily_readiness`, and `daily_resilience` flatten nested `contributors` objects into `contributor_*` columns.
 
-`daily_resilience`, `daily_spo2`, and `daily_cardiovascular_age` may remain empty on Gen 2 hardware or accounts without an active Oura membership.
+`daily_resilience`, `daily_spo2`, and `daily_cardiovascular_age` may remain empty depending on hardware, membership, or OAuth permissions.
+
+The two detailed sleep tables store the API document ID, an indexed `day`, and
+the complete response document in `payload_json`. Each table tracks its own
+sync cursor. Upserts use the document ID so multiple sleep periods on the same
+day are preserved. The sync command creates both tables in existing databases.
 
 Analysis fields:
 

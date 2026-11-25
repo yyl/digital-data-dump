@@ -342,10 +342,11 @@ affect historical values, see the
 
 ## Oura Ring
 
-Syncs daily health summaries from Oura Ring via the v2 API.
+Syncs daily health summaries, sleep periods, and bedtime recommendations from Oura Ring via the v2 API.
 
 **Commands**
 - `oura-sync`
+- `oura-analyze`
 
 **Required in `.env`**
 - `OURA_CLIENT_ID`
@@ -358,7 +359,23 @@ Syncs daily health summaries from Oura Ring via the v2 API.
 
 Register an application at [cloud.ouraring.com/oauth/applications](https://cloud.ouraring.com/oauth/applications), add your client ID and secret to `.env`, then run `oura-sync`. The CLI will open your browser for authorization and save the tokens automatically.
 
-Oura syncs seven daily summary types: activity, sleep, readiness, stress, resilience, SpO2, and cardiovascular age. Resilience, SpO2, and cardiovascular age require a Gen 3+ ring and may require an active Oura membership; they are skipped gracefully on older hardware.
+Oura syncs activity, sleep, readiness, and daily stress, plus optional resilience,
+SpO2, and cardiovascular age. The optional endpoints can require supported
+hardware, an active membership, or additional OAuth scopes. D3 reports which
+optional endpoints were skipped when Oura denies access, and continues the
+rest of the sync.
+
+The `daily` permission also provides individual sleep periods, including naps
+when available, with bedtimes, durations by stage, breathing rate, and overnight
+heart-rate and heart-rate variability series when Oura supplies them. D3 also
+stores Oura's sleep timing documents, including recommended bedtime windows
+when available.
+
+Monthly analysis currently covers 20 numeric measures from sleep and readiness:
+the two scores, their contributor measures, and readiness temperature deviations.
+Each measure has minimum, median, mean, maximum, and non-null sample count.
+Reports and activity exports currently use only mean and median sleep/readiness
+scores.
 
 ## Charles Schwab
 

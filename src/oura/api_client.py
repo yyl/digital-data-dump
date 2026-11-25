@@ -1,6 +1,7 @@
-"""Oura Ring API client with OAuth2 and daily data fetching."""
+"""Oura Ring API client with OAuth2 and date-based data fetching."""
 
 import os
+import re
 import time
 import webbrowser
 from typing import Optional, Dict, Any, List
@@ -39,7 +40,7 @@ class OuraAPIClient:
     REQUEST_DELAY = 1.0
     MAX_RETRIES = 3
 
-    # Daily data endpoint paths
+    # Date-based endpoint paths
     DAILY_ENDPOINTS = {
         "daily_activity": "/v2/usercollection/daily_activity",
         "daily_sleep": "/v2/usercollection/daily_sleep",
@@ -48,6 +49,8 @@ class OuraAPIClient:
         "daily_resilience": "/v2/usercollection/daily_resilience",
         "daily_spo2": "/v2/usercollection/daily_spo2",
         "daily_cardiovascular_age": "/v2/usercollection/daily_cardiovascular_age",
+        "sleep_periods": "/v2/usercollection/sleep",
+        "sleep_time": "/v2/usercollection/sleep_time",
     }
 
     def __init__(
@@ -101,6 +104,16 @@ class OuraAPIClient:
                 )
 
                 if response.status_code == 401:
+                    try:
+                        error = response.json()
+                    except ValueError:
+                        error = {}
+                    if isinstance(error, dict):
+                        detail = error.get("detail")
+                        if isinstance(detail, str) and re.fullmatch(
+                            r"Token is not authorized access [a-z0-9_]+ scope\.", detail,
+                        ):
+                            raise OuraEndpointUnavailable(detail)
                     if retry_auth and self.refresh_token and not self._refresh_failed:
                         print("  Access token expired, refreshing...")
                         if self.refresh_access_token():
@@ -160,7 +173,7 @@ class OuraAPIClient:
             "client_id": self.client_id,
             "response_type": "code",
             "redirect_uri": self.redirect_uri,
-            "scope": "daily personal spo2Daily",
+            "scope": "daily personal spo2 heart_health",
             "state": state,
         }
         auth_url = f"{self.AUTH_URL}?{urlencode(auth_params)}"
@@ -224,9 +237,6 @@ class OuraAPIClient:
         if not self.refresh_token or not self.client_id or not self.client_secret:
             return False
 
-        old_suffix = self.refresh_token[-8:] if self.refresh_token else "(none)"
-        print(f"Oura token refresh: attempting with refresh suffix ...{old_suffix}")
-
         token_params = {
             "client_id": self.client_id,
             "client_secret": self.client_secret,
@@ -258,22 +268,11 @@ class OuraAPIClient:
             self._refresh_failed = True
             return False
 
-        new_refresh = token_data.get("refresh_token")
-        old_suffix = self.refresh_token[-8:] if self.refresh_token else "(none)"
-        new_suffix = new_refresh[-8:] if new_refresh else "(none)"
-        token_changed = new_refresh and new_refresh != self.refresh_token
-
-        print("Oura token refresh succeeded:")
-        print(f"  Response keys: {sorted(token_data.keys())}")
-        print(f"  New refresh token returned: {bool(new_refresh)}")
-        print(f"  Refresh token changed: {token_changed}")
-        print(f"  Old refresh suffix: ...{old_suffix}")
-        print(f"  New refresh suffix: ...{new_suffix}")
-
         self.access_token = access_token
-        self.refresh_token = new_refresh or self.refresh_token
+        self.refresh_token = token_data.get("refresh_token") or self.refresh_token
         self._refresh_failed = False
         self._save_tokens_to_env(self.access_token, self.refresh_token)
+        print("Oura token refresh succeeded.")
         return True
 
     # Alias for backward compatibility
@@ -294,8 +293,8 @@ class OuraAPIClient:
         data_type: str,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
-        """Fetch daily summary data with pagination.
+    ) -> List[Dict[str, Any]] | None:
+        """Fetch date-based Oura documents with pagination.
 
         Args:
             data_type: One of the DAILY_ENDPOINTS keys (e.g., 'daily_activity').
@@ -303,7 +302,7 @@ class OuraAPIClient:
             end_date: End date in YYYY-MM-DD format.
 
         Returns:
-            List of daily summary records.
+            List of records, or None for an unavailable optional endpoint.
         """
         endpoint = self.DAILY_ENDPOINTS.get(data_type)
         if not endpoint:
@@ -324,14 +323,15 @@ class OuraAPIClient:
 
             try:
                 data = self._make_request(url, params)
-            except OuraEndpointUnavailable:
+            except OuraEndpointUnavailable as error:
                 if next_token is None and data_type in GEN3_ENDPOINTS:
-                    return []
+                    print(f"  · {data_type}: skipped ({error})")
+                    return None
                 raise
 
             records = data.get("data")
             if not isinstance(records, list):
-                raise OuraAPIError("Oura returned an invalid daily data page.")
+                raise OuraAPIError("Oura returned an invalid data page.")
             all_records.extend(records)
 
             next_token = data.get("next_token")

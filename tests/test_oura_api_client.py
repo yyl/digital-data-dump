@@ -106,7 +106,7 @@ def test_oura_optional_endpoint_unavailable_only_before_pagination():
     client = OuraAPIClient(access_token="fixture")
     unavailable = OuraEndpointUnavailable("fixture endpoint forbidden")
     with patch.object(client, "_make_request", side_effect=unavailable):
-        assert client.fetch_daily_data("daily_spo2") == []
+        assert client.fetch_daily_data("daily_spo2") is None
         with pytest.raises(OuraEndpointUnavailable):
             client.fetch_daily_data("daily_sleep")
 
@@ -114,3 +114,17 @@ def test_oura_optional_endpoint_unavailable_only_before_pagination():
     with patch.object(client, "_make_request", side_effect=[first, unavailable]):
         with pytest.raises(OuraEndpointUnavailable):
             client.fetch_daily_data("daily_spo2")
+
+
+def test_oura_scope_denial_skips_optional_endpoint_without_token_refresh():
+    client = OuraAPIClient(access_token="fixture-access", refresh_token="fixture-refresh")
+    response = MagicMock(status_code=401)
+    response.json.return_value = {"detail": "Token is not authorized access spo2 scope."}
+
+    with patch.object(client.session, "get", return_value=response), \
+         patch.object(client, "refresh_access_token") as refresh:
+        assert client.fetch_daily_data("daily_spo2") is None
+        with pytest.raises(OuraEndpointUnavailable, match="spo2 scope"):
+            client.fetch_daily_data("daily_sleep")
+    refresh.assert_not_called()
+    assert client._refresh_failed is False

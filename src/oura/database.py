@@ -1,5 +1,6 @@
 """SQLite database manager for Oura Ring data."""
 
+import json
 import time
 from typing import Optional, Dict, Any, List
 
@@ -9,9 +10,10 @@ from .models import RAW_TABLES, RAW_INDEXES
 
 
 class OuraDatabase(BaseDatabase):
-    """Manages SQLite database for Oura Ring daily summaries."""
+    """Manages SQLite storage for Oura Ring data."""
 
     source_name = 'Oura Ring'
+    # Keep legacy databases readable before sync creates the new sleep tables.
     raw_table_names = frozenset({
         'daily_activity',
         'daily_sleep',
@@ -402,6 +404,33 @@ class OuraDatabase(BaseDatabase):
             return True
 
     # ==========================================================================
+    # Sleep Documents
+    # ==========================================================================
+
+    def upsert_sleep_period(self, record: Dict[str, Any]) -> bool:
+        """Store a sleep period, including any stage and biometric series."""
+        return self._upsert_sleep_document("sleep_periods", record)
+
+    def upsert_sleep_time(self, record: Dict[str, Any]) -> bool:
+        """Store Oura's sleep timing recommendation."""
+        return self._upsert_sleep_document("sleep_time", record)
+
+    def _upsert_sleep_document(self, table: str, record: Dict[str, Any]) -> bool:
+        with self.get_connection() as conn:
+            conn.execute(
+                f"""
+                INSERT INTO {table} (id, day, payload_json)
+                VALUES (?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    day = excluded.day,
+                    payload_json = excluded.payload_json,
+                    synced_at = strftime('%s', 'now')
+                """,
+                (record["id"], record["day"], json.dumps(record)),
+            )
+        return True
+
+    # ==========================================================================
     # Statistics
     # ==========================================================================
 
@@ -415,6 +444,8 @@ class OuraDatabase(BaseDatabase):
             "daily_resilience",
             "daily_spo2",
             "daily_cardiovascular_age",
+            "sleep_periods",
+            "sleep_time",
         ]
         stats = {}
         with self.get_connection() as conn:

@@ -12,7 +12,7 @@ DEFAULT_START_DATE = "2020-01-01"
 
 
 class OuraSyncManager:
-    """Orchestrates synchronization of Oura Ring daily data."""
+    """Orchestrates synchronization of Oura Ring data."""
 
     # Map data types to their database upsert methods
     UPSERT_METHODS = {
@@ -23,6 +23,8 @@ class OuraSyncManager:
         "daily_resilience": "upsert_daily_resilience",
         "daily_spo2": "upsert_daily_spo2",
         "daily_cardiovascular_age": "upsert_daily_cardiovascular_age",
+        "sleep_periods": "upsert_sleep_period",
+        "sleep_time": "upsert_sleep_time",
     }
 
     def __init__(
@@ -41,14 +43,14 @@ class OuraSyncManager:
         print("Error: Failed to authenticate with Oura Ring")
         return False
 
-    def _sync_data_type(self, data_type: str) -> int:
+    def _sync_data_type(self, data_type: str) -> int | None:
         """Sync a single data type.
 
         Args:
             data_type: One of the UPSERT_METHODS keys.
 
         Returns:
-            Number of records synced.
+            Number of records synced, or None when an optional endpoint was skipped.
         """
         upsert_method_name = self.UPSERT_METHODS[data_type]
         upsert_method = getattr(self.db, upsert_method_name)
@@ -66,6 +68,8 @@ class OuraSyncManager:
         print(f"  Fetching {data_type} ({start_date} → {end_date})...")
         records = self.api.fetch_daily_data(data_type, start_date, end_date)
 
+        if records is None:
+            return None
         if not records:
             return 0
 
@@ -90,7 +94,7 @@ class OuraSyncManager:
         return new_count
 
     def sync(self) -> Dict[str, Any]:
-        """Sync all daily data types.
+        """Sync all supported data types.
 
         Returns:
             Dictionary with sync statistics per data type.
@@ -117,7 +121,9 @@ class OuraSyncManager:
                 failures.append(data_type)
                 continue
 
-            stats[data_type] = count
+            stats[data_type] = count or 0
+            if count is None:
+                continue
             if count:
                 print(f"  ✓ {data_type}: {count} records")
             elif self.db.get_last_sync_date(data_type):
