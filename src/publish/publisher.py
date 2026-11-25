@@ -106,6 +106,7 @@ class Publisher:
             oura_db=self.oura_db,
             surfilog_db=self.surfilog_db,
             kaya_db=self.kaya_db,
+            strong_db=self.strong_db,
         )
     
     def _fetch_analysis(

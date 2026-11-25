@@ -1,5 +1,6 @@
 """Generator for Hugo-compatible YAML data files from analysis databases."""
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
@@ -21,6 +22,7 @@ from ..surfilog.database import SurfilogDatabase
 from ..surfilog.models import METRICS as SURFILOG_METRICS
 from ..kaya.analytics import COUNT_METRICS as KAYA_COUNT_METRICS
 from ..kaya.database import KayaDatabase
+from ..strong.database import StrongDatabase
 
 def _year_month_to_date(year_month: str) -> date:
     """Convert a YYYY-MM string to the first day of that month."""
@@ -29,7 +31,7 @@ def _year_month_to_date(year_month: str) -> date:
 
 
 def _to_yaml(records: List[Dict[str, Any]], comment: str) -> str:
-    """Serialize a list of flat dicts to YAML list format.
+    """Serialize monthly records to YAML list format.
     
     Produces output like:
         # comment
@@ -57,6 +59,8 @@ def _to_yaml(records: List[Dict[str, Any]], comment: str) -> str:
             # Format values
             if isinstance(value, str):
                 formatted = f'"{value}"'
+            elif isinstance(value, dict):
+                formatted = json.dumps(value)
             elif isinstance(value, float):
                 formatted = f"{value:.2f}"
             else:
@@ -92,6 +96,7 @@ class DataGenerator:
         oura_db: Optional[OuraDatabase] = None,
         surfilog_db: Optional[SurfilogDatabase] = None,
         kaya_db: Optional[KayaDatabase] = None,
+        strong_db: Optional[StrongDatabase] = None,
     ):
         """Initialize data generator.
         
@@ -107,6 +112,7 @@ class DataGenerator:
             oura_db: Oura Ring database manager.
             surfilog_db: Surfilog session and wave database manager.
             kaya_db: Kaya climbing log database manager.
+            strong_db: Strong workout database manager.
         """
         self.readwise_db = readwise_db or ReadwiseDatabase()
         self.foursquare_db = foursquare_db or FoursquareDatabase()
@@ -119,6 +125,7 @@ class DataGenerator:
         self.oura_db = oura_db or OuraDatabase()
         self.surfilog_db = surfilog_db or SurfilogDatabase()
         self.kaya_db = kaya_db or KayaDatabase()
+        self.strong_db = strong_db or StrongDatabase()
 
     def _limit_records_by_month(
         self,
@@ -283,8 +290,16 @@ class DataGenerator:
             record.update({metric: row[metric] for metric in KAYA_COUNT_METRICS})
             if row["hardest_v_grade"] is not None:
                 record["hardest_v_grade"] = row["hardest_v_grade"]
+            record["grade_counts"] = json.loads(row["grade_counts"])
             records.append(record)
         return records
+
+    def _get_all_strong(self) -> List[Dict[str, Any]]:
+        return self.strong_db.fetch_rows("""
+            SELECT year_month AS month, workouts
+            FROM analysis
+            ORDER BY year_month
+        """)
 
     def activity_sources(self) -> tuple[ActivitySource, ...]:
         return (
@@ -299,6 +314,7 @@ class DataGenerator:
             ActivitySource("sleep", "Monthly sleep and readiness data", self.oura_db, self._get_all_oura),
             ActivitySource("surfing", "Monthly surfing activity data", self.surfilog_db, self._get_all_surfilog),
             ActivitySource("bouldering", "Monthly bouldering activity data", self.kaya_db, self._get_all_kaya),
+            ActivitySource("weightlifting", "Monthly weightlifting activity data", self.strong_db, self._get_all_strong),
         )
 
     def load_activity_data(self) -> dict[str, tuple[str, list[dict]]]:

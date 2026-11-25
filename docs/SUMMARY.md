@@ -305,5 +305,9 @@ Those files are not the markdown report itself, but they are derived from the sa
 `longest_wave_m`, and `max_wave_seconds`.
 
 `bouldering.yaml` includes `month`, `climbing_days`, `sends`, `flashes`, and
-`onsights`. When available, `hardest_v_grade` holds the numeric part of the
-highest V grade sent, such as `4` for V4.
+`onsights`, plus a `grade_counts` mapping of grade to send count. An empty grade
+key counts ungraded sends. When available, `hardest_v_grade` holds the numeric
+part of the highest V grade sent, such as `4` for V4.
+
+`weightlifting.yaml` includes `month` and `workouts`, the number of Strong
+workouts logged that month.

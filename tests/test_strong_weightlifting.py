@@ -32,17 +32,13 @@ def add_workout(db, date, sets, name='Full'):
 
 
 def publisher_for(db):
-    publisher = Publisher.__new__(Publisher)
     absent = MagicMock()
     absent.exists.return_value = False
     absent.fetch_rows.return_value = []
     absent.read_connection.return_value.__enter__.return_value = None
-    for source in ('readwise', 'foursquare', 'letterboxd', 'overcast', 'apple_health',
-                   'blog', 'hardcover', 'github_activity', 'oura', 'surfilog', 'kaya'):
-        setattr(publisher, f'{source}_db', absent)
-    publisher.strong_db = db
-    publisher.markdown_generator = MarkdownGenerator()
-    return publisher
+    other_sources = ('readwise', 'foursquare', 'letterboxd', 'overcast', 'apple_health',
+                     'blog', 'hardcover', 'github_activity', 'oura', 'surfilog', 'kaya')
+    return Publisher(strong_db=db, **{f'{source}_db': absent for source in other_sources})
 
 
 def test_best_weights_use_latest_workout_and_latest_session_per_historical_exercise(db):
@@ -118,6 +114,19 @@ def test_absent_database_is_optional_and_not_created(tmp_path, monkeypatch):
     db = StrongDatabase(str(tmp_path / 'absent.db'))
     assert StrongAnalytics(db).get_weightlifting_summary('2026-10') is None
     assert not db.exists()
+
+
+def test_activity_export_counts_workouts_by_month(db):
+    add_workout(db, '2026-09-30 09:00:00', [('Squat', 100)])
+    add_workout(db, '2026-10-10 09:00:00', [('Squat', 100), ('Press', 70)])
+    add_workout(db, '2026-10-20 09:00:00', [('Squat', 110)])
+    StrongAnalytics(db).analyze_workouts()
+
+    files = publisher_for(db).data_generator.generate_data_files(min_year_month='2026-10')
+
+    assert files['data/activity/weightlifting.yaml'].splitlines()[1:] == [
+        '- month: "2026-10"', '  workouts: 2', '',
+    ]
 
 
 def test_csv_import_reimport_and_publish_use_latest_export_weights(db, tmp_path, monkeypatch):

@@ -181,8 +181,11 @@ Current activity files:
 | `code.yaml` | GitHub | Combined commits and repos touched, plus public/private commits, repos touched, additions, and deletions |
 | `sleep.yaml` | Oura Ring | `median_sleep_score`, `avg_sleep_score`, `median_readiness_score`, `avg_readiness_score` |
 | `surfing.yaml` | Surfilog | `sessions`, `waves`, `total_duration_seconds`, `surf_time_seconds`, `surf_distance_m`, `paddling_distance_m`, `max_speed_kmh`, `longest_wave_m`, `max_wave_seconds` |
+| `bouldering.yaml` | Kaya | `climbing_days`, `sends`, `flashes`, `onsights`, `grade_counts`, optional `hardest_v_grade` |
+| `weightlifting.yaml` | Strong | `workouts` |
 
-Published workout metrics come from Apple Health monthly analysis. Strong is still importable and analyzable, but it is not the published workout source.
+Apple Health monthly analysis supplies `workouts.yaml`. Strong monthly analysis
+supplies `weightlifting.yaml`.
 
 ## Source-Specific Technical Notes
 

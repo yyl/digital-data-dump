@@ -76,9 +76,10 @@ def test_newest_export_rebuilds_months_and_publishes_bouldering(db, tmp_path):
 
     files = publisher.data_generator.generate_data_files(min_year_month="2026-10")
     assert set(files) == {"data/activity/bouldering.yaml"}
-    assert files["data/activity/bouldering.yaml"].splitlines()[1:7] == [
+    assert files["data/activity/bouldering.yaml"].splitlines()[1:8] == [
         '- month: "2026-10"', "  climbing_days: 2", "  sends: 3",
         "  flashes: 1", "  onsights: 1", "  hardest_v_grade: 10",
+        '  grade_counts: {"V0": 1, "V10": 1, "": 1}',
     ]
 
     cmd_kaya_analyze(earlier)
