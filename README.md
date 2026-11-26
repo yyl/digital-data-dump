@@ -60,6 +60,7 @@ uv run main.py <command>
 | `workflowy-analyze` | Sync Workflowy and recompute monthly nodes added, modified, and removed |
 | `surfilog-sync` | Sync Surfilog sessions, individual waves, and GPS tracks |
 | `surfilog-analyze` | Sync Surfilog and recompute monthly surfing metrics |
+| `surfilog-import-strava` | Import unimported Strava surfing sessions into Surfilog (`--dry-run`, `--since YYYY-MM-DD`, `--sport-type`) |
 | `kaya-sync [csv_path]` | Import a Kaya bouldering export |
 | `kaya-analyze [csv_path]` | Import an available Kaya export and recompute monthly bouldering metrics |
 | `strong-sync` | Sync Strong through the API when configured; `--csv` replaces history from a complete export |

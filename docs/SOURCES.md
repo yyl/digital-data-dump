@@ -7,6 +7,32 @@ All source data is stored in local SQLite databases under `<storage-root>/data/`
 For shared CLI behavior, including local analysis and monthly publication, see
 the [CLI guide](../README.md#basic-usage).
 
+There are 14 supported sources, each with sync/import and monthly analysis.
+Set `DATA_REPO_LOCAL_PATH` to override the storage root; otherwise the sibling
+`digital-data-vault` repo is used when present, falling back to this repo.
+
+| Source | Monthly analysis currently available |
+|--------|-------------------------------------|
+| Readwise | Archived Reader document count, total words, estimated reading minutes, and maximum/median/minimum words per document |
+| Workflowy | Distinct nodes added, modified, and removed |
+| Foursquare | Checkins and unique places visited |
+| Letterboxd | Movies watched, available runtime minutes, average/minimum/maximum rating, and average years since release |
+| Overcast | Feeds added/removed, episodes marked played, and estimated listening minutes from available episode durations |
+| Strong | Workouts, total minutes, unique exercises, and sets |
+| Apple Health | Workouts excluding walks, total duration, and total calories |
+| Surfilog | Surf sessions, waves caught, water/riding time, riding/paddling distance, maximum speed, and longest wave |
+| Kaya | Bouldering days, sends, recorded attempts, flashes, onsights, and send grades |
+| Blog | Published posts, total words, and unique tags |
+| Hardcover | Books finished and average rating |
+| GitHub | Commits and repositories touched, plus lines added and deleted, with separate public/private counts |
+| Oura Ring | Minimum/median/mean/maximum and sample counts for sleep and readiness measures |
+| Charles Schwab | Per-account trade cash flows, fees, trade-leg counts, unique symbols, and the last available balance snapshot each month |
+
+This is a summary of supported outputs, not confirmation that every source has
+local data or credentials configured. Calculation details belong in the
+[technical guide](../src/README.md#source-specific-technical-notes); report
+sections and activity exports are described in [SUMMARY.md](SUMMARY.md).
+
 ## Readwise
 
 Tracks books, highlights, and Reader documents.
@@ -17,6 +43,11 @@ Tracks books, highlights, and Reader documents.
 
 **Required in `.env`**
 - `READWISE_ACCESS_TOKEN`
+
+Monthly analysis covers archived Reader documents. Synced books and highlights
+are retained as raw data, without a separate monthly book/highlight rollup.
+Reading minutes use the document's estimated reading time rather than measured
+time spent reading.
 
 ## Workflowy
 
@@ -39,6 +70,10 @@ export only provides each node's latest modification, and past deletion dates
 cannot be recovered. See the [metric definitions](../src/README.md#workflowy-metric-definitions)
 for coverage limits. Workflowy report publishing is not included yet.
 
+Normal `publish` and `backfill` do not refresh Workflowy. The monthly GitHub
+Actions workflow currently does not pass `WORKFLOWY_API_KEY`, so configuring the
+secret alone does not enable Workflowy in that workflow.
+
 ## Foursquare
 
 Tracks Swarm/Foursquare checkins and place visits.
@@ -54,6 +89,7 @@ Tracks Swarm/Foursquare checkins and place visits.
 - `FOURSQUARE_CLIENT_ID`
 - `FOURSQUARE_CLIENT_SECRET`
 - `FOURSQUARE_API_KEY`
+- `FOURSQUARE_REDIRECT_URI` (defaults to `https://localhost:8888/callback`)
 
 The sync reads checkins for the one Swarm account associated with its OAuth
 token. For an unapproved pay-as-you-go Foursquare organization, use a Swarm
@@ -126,6 +162,10 @@ To get `OVERCAST_COOKIE` from Chrome:
 If the cookie expires or Overcast sync stops, repeat those steps and update the secret.
 
 After importing the OPML, `overcast-sync` fetches podcast RSS feeds and fills missing episode durations when RSS duration metadata is available. Monthly analysis uses those durations to populate `minutes_listened` for `podcasts.yaml`.
+
+Listening minutes sum the full available durations of episodes marked played;
+they do not measure partial playback or repeated listens. Played episodes are
+grouped by their stored user-update date, and feed removals by detection date.
 
 ## Strong
 
@@ -243,6 +283,7 @@ Tracks surfing sessions and individual waves through the same JSON API used by
 **Commands**
 - `surfilog-sync`
 - `surfilog-analyze`
+- `surfilog-import-strava` (`--dry-run`, `--since YYYY-MM-DD`, `--sport-type`)
 
 **Required in `.env`**
 - `SURFILOG_EMAIL`
@@ -268,6 +309,17 @@ variables as repository Actions secrets for monthly automation. Configured
 authentication or download failures stop the pipeline rather than publish a
 partially downloaded surfing snapshot. The standalone login probe remains
 available as `uv run python scripts/surfilog_login.py`.
+
+To automatically pull new Strava surfing sessions into Surfilog, connect your
+Strava account once in Surfilog's Upload page (`https://surfilog.com/upload`),
+then run `uv run main.py surfilog-import-strava` (add `--dry-run` to preview
+pending imports, `--since YYYY-MM-DD` to set a lower date bound, or repeatable
+`--sport-type` flags if you want water sports beyond `Surfing`). This command is
+opt-in and runs independently of read-only `surfilog-sync`, on its own daily
+GitHub Actions workflow (`.github/workflows/surfilog-strava-import.yml`) using
+the same `SURFILOG_EMAIL` and `SURFILOG_PASSWORD` secrets. Note that Surfilog's
+Strava import uses Strava's GPS streams, so Strava's Privacy Zone setting trims
+tracks near your home address if enabled.
 
 ## Kaya
 
@@ -307,6 +359,9 @@ Tracks published blog posts from a public Hugo JSON index.
 
 **Optional in `.env`**
 - `BLOG_POSTS_INDEX_URL`
+
+The index URL defaults to the configured blog in `src/config.py`; override it
+for another blog.
 
 Blog analysis powers the published `Writing` section and `writing.yaml`.
 
@@ -416,6 +471,7 @@ Syncs account balance snapshots and recent trade transactions from the Charles S
 
 **Commands**
 - `schwab-sync`
+- `schwab-analyze`
 
 **Required in `.env`**
 - Either `SCHWAB_ACCESS_TOKEN`, or both `SCHWAB_CLIENT_ID` and `SCHWAB_CLIENT_SECRET`
@@ -427,3 +483,15 @@ Syncs account balance snapshots and recent trade transactions from the Charles S
 Register an application at [developer.schwab.com](https://developer.schwab.com), add your credentials to `.env`, then run `schwab-sync`. If no access token is present, the CLI will start the OAuth flow and save the returned access and refresh tokens.
 
 Each sync stores a new row in `account_snapshots` per Schwab account, keyed with the Schwab account hash so multiple accounts under one client account remain distinguishable. Transactions are fetched per account hash and upserted into `transactions` by account hash plus `activityId`; the full Schwab transaction payload is preserved as JSON for future analysis. Initial transaction sync fetches the maximum supported one-year window, and later syncs start from the latest stored transaction with a one-day overlap.
+
+Monthly analysis writes per-account buy costs, sell proceeds, net trade cash
+flow, fees, total/opening/closing trade-leg counts, and unique symbols. These
+are cash-flow summaries, not realized or unrealized investment returns. A second
+monthly output selects each account's last available snapshot, including account
+value, equity, cash, buying power, market values, margin fields, and available
+cash. It is only a true month-end balance if a snapshot was taken then.
+
+Schwab analysis is available through `schwab-analyze` and aggregate `analyze`,
+but is not included in reports, activity YAML, or normal `publish`/`backfill`
+refreshes. Its separate GitHub Actions workflow runs `schwab-analyze` manually;
+scheduled runs are currently paused due to OAuth/token-refresh failures.

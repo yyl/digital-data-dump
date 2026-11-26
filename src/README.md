@@ -4,6 +4,9 @@ This document is the developer-oriented guide to how the codebase works.
 
 It covers architecture, storage layout, per-source implementation patterns, analysis tables, publishing, backfill behavior, and deployment details that are useful when modifying the repo.
 
+For the proposed D3/DDV/DDU consolidation, refactor sequence, and hosting tradeoffs,
+see [the system consolidation analysis](../docs/design/SYSTEM_CONSOLIDATION.md).
+
 ## Project Structure
 
 Note: the tree below is shown from the repository root.
@@ -244,6 +247,15 @@ counts; observed edit dates are retained even if later source metadata changes.
 
 - Uses `POST /api/auth/login`, verifies its cookie with `GET /api/auth/me`, then
   fetches `GET /api/sessions` and `GET /api/sessions/{id}` for every listed session.
+- `surfilog-import-strava` (`src/surfilog/strava_import.py`) reuses the same
+  cookie-authenticated client to check `GET /api/strava/status`, paginate
+  `GET /api/strava/activities` (`stravaPageFrom`, `per_page`, optional `after`),
+  filter unimported matching `sport_type` activities (defaulting to `Surfing`),
+  and trigger `POST /api/strava/import/{activityId}` oldest-first. HTTP 409 is
+  treated as idempotent already-imported; `STRAVA_DISCONNECTED`, HTTP 401/403/429,
+  and Cloudflare blocks abort immediately without leaking response bodies. It is
+  intentionally decoupled from read-only `surfilog-sync` and runs on its own
+  daily workflow (`.github/workflows/surfilog-strava-import.yml`).
 - The standard-library client is shared with `scripts/surfilog_login.py` and
   identifies itself as `digital-data-dump-surfilog-login/1.0`, following
   [Cloudflare's descriptive User-Agent guidance](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-1xxx-errors/error-1010/#requests-to-pages-projects-or-workersdev).
@@ -707,7 +719,7 @@ stderr, standard exception logging, and caught-error output.
 - Calls `/accounts/{accountNumber}/transactions` per account hash and upserts transactions by account hash plus `activityId`
 - Fetches a one-year transaction window for a new account hash, then uses the latest stored transaction timestamp with a one-day overlap for later syncs
 - Stores common searchable transaction fields as columns and preserves the full transaction response as JSON for later analysis
-- This source is sync-only for now; no monthly analysis or publish output is generated yet
+- `schwab-analyze` syncs first, then writes per-account trade cash-flow summaries to `monthly_pnl` and the last available balance snapshot per month to `monthly_account_snapshots`. Cash flows are not cost-basis investment P&L. Aggregate `analyze` includes Schwab; report and activity publishing do not.
 
 ## Database Schemas
 

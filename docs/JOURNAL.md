@@ -3,6 +3,24 @@
 Record meaningful project changes here, newest first. Each entry explains what
 changed, why, and where to find the design, usage, and implementation details.
 
+## 2026-11-26 — Automate Strava-to-Surfilog surf session imports
+
+Surfilog's built-in Strava integration lists activities for manual import but
+does not auto-import new sessions. `SurfilogAPIClient` now supports Surfilog's
+authenticated `/api/strava/status`, `/api/strava/activities`, and
+`/api/strava/import/{id}` endpoints without requiring separate Strava API
+credentials or OAuth token storage.
+
+Adds the opt-in `surfilog-import-strava` command (`--dry-run`, `--since`,
+`--sport-type`, defaulting to `Surfing`) and a daily GitHub Actions workflow
+(`.github/workflows/surfilog-strava-import.yml`) decoupled from read-only
+`surfilog-sync`. Imports run oldest-first, treat HTTP 409 as idempotent, and
+abort immediately on `STRAVA_DISCONNECTED`, auth/rate-limit errors, or
+Cloudflare blocks without exposing response bodies.
+
+See [source setup](SOURCES.md#surfilog), [technical notes](../src/README.md#surfilog),
+and [regression tests](../tests/test_surfilog_strava_import.py).
+
 ## 2026-11-25 — Reconcile renamed GitHub repositories
 
 D3 previously kept commits under their original repository name after a

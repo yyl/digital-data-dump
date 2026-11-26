@@ -1,0 +1,52 @@
+name: Import Strava Sessions to Surfilog
+
+on:
+  schedule:
+    # Run daily at 9:15 UTC (1:15 AM PST / 2:15 AM PDT), staggered after other daily jobs
+    - cron: '15 9 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'List unimported Strava surf sessions without importing them'
+        required: false
+        default: false
+        type: boolean
+      since:
+        description: 'Optional YYYY-MM-DD lower bound for Strava activities'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: surfilog-strava-import
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+
+      - name: Import unimported Strava surf sessions into Surfilog
+        env:
+          SURFILOG_EMAIL: ${{ secrets.SURFILOG_EMAIL }}
+          SURFILOG_PASSWORD: ${{ secrets.SURFILOG_PASSWORD }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          SINCE: ${{ inputs.since }}
+        run: |
+          args=()
+          if [ "$DRY_RUN" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          if [ -n "$SINCE" ]; then
+            args+=(--since "$SINCE")
+          fi
+          uv run --locked --python "$(cat .python-version)" main.py surfilog-import-strava "${args[@]}"

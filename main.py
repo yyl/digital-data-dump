@@ -150,6 +150,18 @@ def cmd_surfilog_sync():
     return SurfilogSyncManager().sync()
 
 
+def cmd_surfilog_import_strava(*, dry_run=False, since=None, sport_types=None):
+    """Import unimported Strava surfing sessions into Surfilog."""
+    from src.surfilog.strava_import import SurfilogStravaImporter
+
+    Config.validate_surfilog()
+    return SurfilogStravaImporter().import_new(
+        dry_run=dry_run,
+        since=since,
+        sport_types=sport_types,
+    )
+
+
 def cmd_kaya_sync(csv_path=None):
     """Import an explicit Kaya export or discover local and DDU exports."""
     from src.kaya.importer import KayaImporter
@@ -449,6 +461,21 @@ def main(argv=None) -> int:
     )
     heart_breathing.add_argument("xml_path", nargs="?", type=Path, help="Defaults to the newest export.xml under files/")
     heart_breathing.set_defaults(operation=cmd_apple_health_import_heart_breathing)
+
+    surfilog_strava = commands.add_parser(
+        "surfilog-import-strava", help="Import unimported Strava surfing sessions into Surfilog"
+    )
+    surfilog_strava.add_argument(
+        "--dry-run", action="store_true", help="List matching unimported Strava activities without importing"
+    )
+    surfilog_strava.add_argument(
+        "--since", metavar="YYYY-MM-DD", help="Only consider Strava activities on or after this date"
+    )
+    surfilog_strava.add_argument(
+        "--sport-type", dest="sport_types", action="append",
+        help="Strava sport_type to import (repeatable; defaults to Surfing)"
+    )
+    surfilog_strava.set_defaults(operation=cmd_surfilog_import_strava)
 
     for source in sources:
         _add_source_commands(commands, source)
