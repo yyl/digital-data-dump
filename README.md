@@ -52,24 +52,16 @@ uv run main.py <command>
 | `analyze` | Sync configured sources and recompute monthly analysis, or use `--local` to analyze existing data |
 | `publish` | Generate and publish a draft monthly report |
 | `backfill` | Refresh analysis and regenerate blog activity YAML files |
-| `overcast-publish-latest` | Refresh the blog’s latest played podcast card. Use `--dry-run` to preview the snapshot |
-| `apple-health-publish-latest` | Refresh the blog’s latest workout card from imported Apple Health entries. Use `--dry-run` to preview the snapshot |
 | `pipeline` | Refresh the reporting sources once and publish the draft and activity YAML files |
 | `status` | Show current sync status |
-| `workflowy-sync` | Sync a full Workflowy node export into the local mirror |
-| `workflowy-analyze` | Sync Workflowy and recompute monthly nodes added, modified, and removed |
-| `surfilog-sync` | Sync Surfilog sessions, individual waves, and GPS tracks |
-| `surfilog-analyze` | Sync Surfilog and recompute monthly surfing metrics |
-| `surfilog-import-strava` | Import unimported Strava surfing sessions into Surfilog (`--dry-run`, `--since YYYY-MM-DD`, `--sport-type`) |
-| `kaya-sync [csv_path]` | Import a Kaya bouldering export |
-| `kaya-analyze [csv_path]` | Import an available Kaya export and recompute monthly bouldering metrics |
-| `strong-sync` | Sync Strong through the API when configured; `--csv` replaces history from a complete export |
-| `strong-analyze` | Sync Strong data and refresh monthly analysis for Weightlifting |
-| `apple-health-sync` | Import local DDU Apple Health JSON archives, preserving existing history |
-| `apple-health-analyze` | Import Apple Health JSON archives and recompute monthly workout metrics |
-| `apple-health-import-heart-breathing [xml_path]` | Import individual heart and breathing samples from Apple Health XML |
-| `{source}-sync` | Sync one source |
+| `{source}-sync` | Sync one source (see [docs/SOURCES.md](docs/SOURCES.md) for source names) |
 | `{source}-analyze` | Sync and analyze one source, or use `--local` to analyze existing data |
+| `overcast-publish-latest` | Refresh the blog’s latest played podcast card (`--dry-run` to preview) |
+| `apple-health-publish-latest` | Refresh the blog’s latest workout card (`--dry-run` to preview) |
+| `apple-health-import-heart-breathing [xml_path]` | Import individual heart and breathing samples from Apple Health XML |
+| `surfilog-import-strava` | Import unimported Strava surfing sessions into Surfilog (`--dry-run`, `--since YYYY-MM-DD`, `--sport-type`) |
+| `strong-sync --csv` | Replace Strong history from a complete local CSV export instead of API sync |
+| `kaya-sync [csv_path]` / `kaya-analyze [csv_path]` | Import a specific Kaya CSV export (defaults to auto-discovered local/vault exports) |
 
 ## Common Workflows
 
