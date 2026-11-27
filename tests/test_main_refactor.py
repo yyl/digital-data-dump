@@ -100,3 +100,26 @@ def test_status_reports_schwab_monthly_tables(monkeypatch, tmp_path, capsys):
     assert "monthly_pnl records: 0" in output
     assert "monthly_account_snapshots records: 0" in output
     assert "analysis: unavailable" not in output
+
+
+def test_status_reports_letterboxd_tmdb_and_missing_runtime(monkeypatch, tmp_path, capsys):
+    from src.letterboxd.database import LetterboxdDatabase
+
+    path = tmp_path / "letterboxd.db"
+    monkeypatch.setattr(Config, "LETTERBOXD_DATABASE_PATH", path)
+    monkeypatch.setattr(Config, "TMDB_ACCESS_TOKEN", "token")
+    monkeypatch.setattr(Config, "TMDB_API_KEY", "")
+    db = LetterboxdDatabase()
+    db.init_tables()
+    db.ensure_user("tester")
+    db.upsert_watched(
+        {"Letterboxd URI": "https://letterboxd.com/film/source-code/", "Name": "Source Code", "Year": 2011, "Date": "2026-08-09"},
+        "tester",
+    )
+    letterboxd = next(source for source in main.source_catalog() if source.key == "letterboxd")
+    monkeypatch.setattr(main, "source_catalog", lambda: (letterboxd,))
+
+    assert main.main(["status"]) == 0
+    output = capsys.readouterr().out
+    assert "has_tmdb_token: True" in output
+    assert "missing_runtime: 1" in output

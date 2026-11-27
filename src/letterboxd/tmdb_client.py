@@ -9,6 +9,10 @@ import requests
 from ..config import Config
 
 
+class TMDBAPIError(RuntimeError):
+    """Sanitized error raised when TMDB cannot satisfy a runtime lookup."""
+
+
 class TMDBClient:
     """Small TMDB client focused on movie runtime enrichment."""
 
@@ -23,8 +27,8 @@ class TMDBClient:
         api_key: Optional[str] = None,
         session: Optional[requests.Session] = None,
     ):
-        self.access_token = access_token or Config.TMDB_ACCESS_TOKEN
-        self.api_key = api_key or Config.TMDB_API_KEY
+        self.access_token = access_token if access_token is not None else Config.TMDB_ACCESS_TOKEN
+        self.api_key = api_key if api_key is not None else Config.TMDB_API_KEY
         self.session = session or requests.Session()
         self._last_request_time = 0.0
 
@@ -58,9 +62,11 @@ class TMDBClient:
         path: str,
         params: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Make a TMDB request with lightweight retries."""
+        """Make a TMDB request with retries on transient errors and loud failures."""
         if not self.is_configured():
-            return None
+            raise TMDBAPIError(
+                "TMDB credentials are not configured; set TMDB_ACCESS_TOKEN or TMDB_API_KEY."
+            )
 
         url = f"{self.API_BASE}{path}"
         headers = self._build_headers()
@@ -70,13 +76,42 @@ class TMDBClient:
             try:
                 self._rate_limit()
                 response = self.session.get(url, headers=headers, params=query, timeout=30)
-                response.raise_for_status()
-                return response.json()
+            except requests.exceptions.Timeout:
+                if attempt >= self.MAX_RETRIES - 1:
+                    raise TMDBAPIError(f"TMDB API request timed out for {path}.") from None
+                time.sleep(1.5 ** attempt)
+                continue
             except requests.exceptions.RequestException:
                 if attempt >= self.MAX_RETRIES - 1:
-                    return None
+                    raise TMDBAPIError(f"TMDB API network error for {path}.") from None
                 time.sleep(1.5 ** attempt)
-        return None
+                continue
+
+            status = response.status_code
+            if status == 404 and path.startswith("/movie/"):
+                return None
+            if status in (401, 403):
+                raise TMDBAPIError(
+                    f"TMDB API authentication failed (HTTP {status}) for {path}; "
+                    "check TMDB_ACCESS_TOKEN or TMDB_API_KEY."
+                )
+            if status == 429 or status >= 500:
+                if attempt >= self.MAX_RETRIES - 1:
+                    raise TMDBAPIError(f"TMDB API request failed (HTTP {status}) for {path}.")
+                time.sleep(1.5 ** attempt)
+                continue
+            if status >= 400:
+                raise TMDBAPIError(f"TMDB API request failed (HTTP {status}) for {path}.")
+
+            try:
+                payload = response.json()
+            except ValueError:
+                raise TMDBAPIError(f"TMDB API returned invalid JSON for {path}.") from None
+            if not isinstance(payload, dict):
+                raise TMDBAPIError(f"TMDB API returned an unexpected payload for {path}.")
+            return payload
+
+        raise TMDBAPIError(f"TMDB API request failed after retries for {path}.")
 
     @staticmethod
     def _normalize_title(title: Optional[str]) -> str:

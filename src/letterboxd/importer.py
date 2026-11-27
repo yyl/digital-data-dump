@@ -6,7 +6,7 @@ from typing import Optional, Dict, Any
 
 from ..config import Config
 from .database import LetterboxdDatabase
-from .tmdb_client import TMDBClient
+from .tmdb_client import TMDBAPIError, TMDBClient
 
 
 class LetterboxdImporter:
@@ -132,12 +132,17 @@ class LetterboxdImporter:
 
     def enrich_missing_runtime(self, client: Optional[TMDBClient] = None) -> int:
         """Backfill runtime data for watched movies using TMDB."""
-        client = client or TMDBClient()
-        if not client.is_configured():
-            print("TMDB credentials not configured; skipping Letterboxd runtime enrichment")
+        missing_before = self.db.get_movies_missing_runtime()
+        if not missing_before:
             return 0
 
-        missing_before = self.db.get_movies_missing_runtime()
+        client = client or TMDBClient()
+        if not client.is_configured():
+            raise TMDBAPIError(
+                "TMDB credentials are not configured (set TMDB_ACCESS_TOKEN or TMDB_API_KEY); "
+                f"cannot enrich runtime for {len(missing_before)} watched movie(s)."
+            )
+
         count = 0
         for movie in missing_before:
             match = client.get_runtime(

@@ -139,7 +139,7 @@ To publish the markdown report to the data repo, set:
 - `DATA_GITHUB_TARGET_BRANCH` (optional, defaults to `main`)
 - `DATA_REPO_POSTS_DIR` (optional, defaults to `posts`)
 
-To also publish the rolling one-year activity files to the blog repo during `backfill`, set:
+To also publish the rolling one-year activity files during `backfill`/`pipeline` and the daily homepage cards (`overcast-publish-latest`, `apple-health-publish-latest`) to the blog repo, set:
 
 - `BLOG_GITHUB_TOKEN`
 - `BLOG_REPO_OWNER`
@@ -152,9 +152,12 @@ Optional:
 
 ## GitHub Actions
 
-This repo includes a monthly GitHub Actions workflow so the pipeline can run automatically or on demand.
+This repo includes GitHub Actions workflows for automated runs and manual triggers:
 
-- Scheduled run: the 1st of each month at `6:00 AM Pacific` (`America/Los_Angeles`, automatically adjusting for PDT/PST). Runs `pipeline --last-month` to refresh the reporting sources once, then publish the previous month's draft and activity files.
-- Manual run: open the workflow in the Actions tab and use the workflow inputs
+- **Monthly Pipeline** (`.github/workflows/monthly-pipeline.yml`): runs on the 1st of each month at `6:00 AM Pacific` (`America/Los_Angeles`, automatically adjusting for PDT/PST) with `pipeline --last-month`, and supports manual runs from the Actions tab via workflow inputs.
+- **Daily Overcast Card** (`.github/workflows/overcast-activity.yml`): runs daily at `08:25 UTC` (`overcast-publish-latest`) to refresh the blog's latest played podcast card.
+- **Daily Apple Health Card** (`.github/workflows/apple-health-activity.yml`): runs daily at `08:45 UTC` (`apple-health-sync` followed by `apple-health-publish-latest`) to refresh the blog's latest workout card.
+- **Daily Surfilog Strava Import** (`.github/workflows/surfilog-strava-import.yml`): runs daily at `09:15 UTC` (`surfilog-import-strava`) to pull unimported Strava surfing sessions into Surfilog.
+- **Schwab Sync** (`.github/workflows/schwab-sync.yml`): isolated manual (`workflow_dispatch`) workflow running `schwab-analyze` (scheduled runs are currently paused).
 
 For source setup details, see [docs/SOURCES.md](docs/SOURCES.md). For developer-oriented deployment details, see [src/README.md](src/README.md).

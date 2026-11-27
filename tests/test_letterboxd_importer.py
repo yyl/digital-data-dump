@@ -1,6 +1,9 @@
 from unittest.mock import MagicMock
 
+import pytest
+
 from src.letterboxd.importer import LetterboxdImporter
+from src.letterboxd.tmdb_client import TMDBAPIError
 
 
 def test_extract_tmdb_id_accepts_letterboxd_export_variants():
@@ -81,3 +84,64 @@ def test_enrich_missing_runtime_reports_unmatched_movies(capsys):
     out = capsys.readouterr().out
     assert "Enriched runtime metadata for 1 watched movies" in out
     assert "Could not find TMDB runtime for 1 watched movies: The Blackening (2022)" in out
+
+
+def test_enrich_missing_runtime_raises_when_movies_missing_and_unconfigured():
+    db = MagicMock()
+    db.get_movies_missing_runtime.return_value = [
+        {
+            "letterboxd_uri": "https://letterboxd.com/film/source-code/",
+            "movie_name": "Source Code",
+            "year": 2011,
+            "tmdb_id": None,
+        }
+    ]
+    importer = LetterboxdImporter(db=db)
+    client = MagicMock()
+    client.is_configured.return_value = False
+
+    with pytest.raises(TMDBAPIError, match="1 watched movie"):
+        importer.enrich_missing_runtime(client=client)
+
+
+def test_enrich_missing_runtime_skips_cleanly_when_nothing_missing_even_unconfigured():
+    db = MagicMock()
+    db.get_movies_missing_runtime.return_value = []
+    importer = LetterboxdImporter(db=db)
+    client = MagicMock()
+    client.is_configured.return_value = False
+
+    assert importer.enrich_missing_runtime(client=client) == 0
+    client.get_runtime.assert_not_called()
+
+
+def test_enrich_missing_runtime_propagates_tmdb_error_after_saving_earlier_movies():
+    db = MagicMock()
+    db.get_movies_missing_runtime.return_value = [
+        {
+            "letterboxd_uri": "https://letterboxd.com/film/source-code/",
+            "movie_name": "Source Code",
+            "year": 2011,
+            "tmdb_id": None,
+        },
+        {
+            "letterboxd_uri": "https://letterboxd.com/film/the-firm/",
+            "movie_name": "The Firm",
+            "year": 1993,
+            "tmdb_id": None,
+        },
+    ]
+    db.update_movie_metadata.return_value = True
+    importer = LetterboxdImporter(db=db)
+    client = MagicMock()
+    client.is_configured.return_value = True
+    client.get_runtime.side_effect = [(45612, 93), TMDBAPIError("TMDB API authentication failed (HTTP 401)")]
+
+    with pytest.raises(TMDBAPIError, match="HTTP 401"):
+        importer.enrich_missing_runtime(client=client)
+
+    db.update_movie_metadata.assert_called_once_with(
+        letterboxd_uri="https://letterboxd.com/film/source-code/",
+        tmdb_id=45612,
+        runtime_minutes=93,
+    )

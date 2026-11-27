@@ -13,12 +13,14 @@ Note: the tree below is shown from the repository root.
 
 ```text
 ├── main.py                 # CLI entry point
+├── scripts/                # Standalone helper scripts (e.g. surfilog_login.py)
 ├── src/
 │   ├── config.py           # Environment configuration and storage resolution
 │   ├── database.py         # Base SQLite connection manager
 │   ├── source_operations.py # Shared source lifecycle and batch execution
 │   ├── comparison.py       # Shared MoM/YoY comparison helpers
 │   ├── time_utils.py       # UTC timestamp helpers
+│   ├── token_store.py      # Shared .env OAuth token persistence helper
 │   ├── readwise/
 │   ├── foursquare/
 │   ├── letterboxd/
@@ -29,6 +31,7 @@ Note: the tree below is shown from the repository root.
 │   ├── hardcover/
 │   ├── github/
 │   ├── oura/
+│   ├── schwab/
 │   ├── workflowy/
 │   ├── surfilog/
 │   ├── kaya/
@@ -166,6 +169,8 @@ The `src/publish/` package contains the publishing layer.
 | `publisher.py` | Orchestrates data fetch, comparisons, report assembly, and publish flow |
 | `markdown_generator.py` | Renders the monthly markdown report |
 | `data_generator.py` | Generates `data/activity/*.yaml` files from analysis tables |
+| `activity_chart.py` | Renders the SVG hourly GitHub commit activity chart |
+| `travel_map.py` | Renders the static OpenStreetMap PNG travel map |
 | `github_client.py` | Writes report/data files to GitHub using PyGithub |
 
 ## Publish and Backfill Flows
@@ -345,9 +350,10 @@ Important implementation details:
   - `tmdb_id`
   - `runtime_minutes`
   - `metadata_updated_at`
-- If `TMDB_ACCESS_TOKEN` or `TMDB_API_KEY` is configured, `letterboxd-sync` performs a TMDB enrichment pass after import/sync
-- The TMDB enrichment path prefers exact title plus exact year, then falls back to exact title with a `+/- 1` year window
-- If runtime enrichment still fails, sync prints the unmatched movie titles
+- After CSV/RSS import, `letterboxd-sync` runs a TMDB enrichment pass for any rows missing `runtime_minutes`
+- `TMDBClient` prefers `TMDB_ACCESS_TOKEN` (Bearer) over `TMDB_API_KEY`, raises `TMDBAPIError` (with sanitized messages that omit credentials) on auth/HTTP/transport/JSON errors or missing credentials when movies still lack runtimes, and treats HTTP 404 on `/movie/{id}` as a non-fatal miss
+- The TMDB enrichment path prefers exact title plus exact year, then falls back to exact title with a `+/- 1` year window; each matched movie is saved immediately so interrupted runs resume safely
+- If runtime enrichment still finds no safe match, sync prints the unmatched movie titles without failing; `status` reports `has_tmdb_token` and `missing_runtime`
 
 Letterboxd analysis writes:
 
@@ -491,6 +497,8 @@ coverage is in [`test_strong_sync.py`](../tests/test_strong_sync.py).
 - Monthly analysis is the source of truth for the published workout section and `workouts.yaml`
 - Analysis preserves the existing UTC month grouping and walk exclusion, and
   rebuilds derived rows so corrected workout dates cannot leave stale months.
+- `apple-health-publish-latest` (`src/apple_health/activity_snapshot.py`) reads the latest non-walk workout from `workouts` and updates `data/activity/latest_workout.json` on the blog repo when changed. The daily workflow (`.github/workflows/apple-health-activity.yml`) runs `apple-health-sync` before publishing the card.
+- `apple-health-import-heart-breathing` streams top-level heart and breathing `<Record>` elements from an explicit Apple Health `export.xml` into `heart_breathing_samples` in a single transaction, deduplicating identical samples by field hash.
 
 Inspect held observations without exposing whole payloads:
 
@@ -506,6 +514,13 @@ There is no automatic historical backfill before August 2026. Restoring a baseli
 through `AppleHealthImporter.import_from_file(Path('.../export.xml'))` is an
 explicit recovery operation and must precede JSON replay on a fresh database.
 See `docs/design/AH_JSON.md` for the agreed scope and audited coverage.
+
+### Kaya
+
+- File-backed CSV source with no external API or credentials. `kaya-sync` and `kaya-analyze` accept an explicit CSV path or auto-discover both the latest manual `files/KAYA-Export-*.csv` file and every immutable DDU archive under `files/kaya/exports/*.csv`.
+- Timestamps are parsed from Kaya's export format and converted into `local_date` using `KAYA_TIMEZONE` (default `America/Los_Angeles`). Each row receives a deterministic `climb_id` hashing UTC timestamp, export fields, and within-file occurrence index so full and partial exports merge idempotently without losing prior history.
+- The importer validates headers, field counts, dates, and non-empty `ascent_type` across the entire file before inserting new rows in one transaction.
+- `KayaAnalytics.analyze_climbs()` rebuilds all monthly rows in `analysis` (distinct climbing days, sends counting `redpoint`/`flash`/`onsight`, recorded attempts and missing-attempt counts, flashes, onsights, numeric `hardest_v_grade`, and sorted JSON `grade_counts`), powering the **Bouldering** report section and `bouldering.yaml`.
 
 ### Blog
 
@@ -532,9 +547,11 @@ See `docs/design/AH_JSON.md` for the agreed scope and audited coverage.
 
 #### GitHub metric definitions
 
-Definition updated **2026-10-25**. See the
+Definition updated **2026-11-25** (including line counts, hourly activity, and renamed-repository reconciliation). See the
 [dated change entry](../docs/JOURNAL.md#2026-10-25--github-private-activity-and-metric-definitions)
-for the change from public-only metrics to public/private metrics.
+for the original change from public-only metrics to public/private metrics, and
+[2026-11-25](../docs/JOURNAL.md#2026-11-25--reconcile-renamed-github-repositories)
+for renamed-repository reconciliation.
 
 **Input population and identity**
 
@@ -705,7 +722,7 @@ stderr, standard exception logging, and caught-error output.
 - Incremental sync uses a `sync_state` table tracking the last synced date per data type
 - Skips resilience, SpO2, and cardiovascular age if Oura denies endpoint access, including explicit missing-scope responses
 - Cursor-based pagination via `next_token` query parameter handles large historical fetches
-- Analysis aggregates daily sleep and readiness scores into monthly medians and averages
+- Analysis aggregates 20 numeric columns from `daily_sleep` and `daily_readiness` (scores, contributors, and temperature deviations) into monthly min, median, mean, max, and sample count rows in the normalized `analysis` table; `src/oura/reporting.py` pivots the four sleep/readiness score averages and medians for reports and `sleep.yaml`
 - `publish` includes a "Sleep & Readiness" section with MoM/YoY comparisons
 - `backfill` generates `sleep.yaml` activity files
 
@@ -727,13 +744,15 @@ Each source has a separate SQLite database under `<storage-root>/data/`.
 
 ### Common Analysis Table Shape
 
-Every source's `analysis` table has:
+Most sources' primary `analysis` table has:
 
 - `year_month` as a `YYYY-MM` primary key
 - `year`
 - `month`
 - source-specific metrics
 - `updated_at`
+
+Exceptions: Oura uses a normalized `analysis` table keyed by `(year_month, source_table, metric)` without `year`/`month`; Charles Schwab uses `monthly_pnl` and `monthly_account_snapshots` keyed by `(year_month, account_hash)`; and secondary breakdown tables (`analysis_by_source`, `analysis_by_activity`, `analysis_by_hour`) also omit `year`/`month`.
 
 ### Per-Source Databases
 
@@ -942,6 +961,21 @@ User-Agent and a seven-day local cache.
 consumers. New visibility fields are nullable during analysis schema migration
 and are populated from raw commits by `github-analyze`.
 
+#### Workflowy (`workflowy.db`)
+
+Data tables:
+
+- `nodes` (mirrored nodes with source fields, raw JSON, `first_seen_at`, `last_seen_at`, and `is_deleted` tombstones)
+- `node_modifications` (observed `(node_id, modified_at)` edit history)
+- `node_removals` (observed `(node_id, removed_at)` active-to-missing transitions)
+- `sync_state` (latest successful snapshot metadata and counts)
+
+Analysis fields:
+
+- `nodes_added`
+- `nodes_modified`
+- `nodes_removed`
+
 #### Surfilog (`surfilog.db`)
 
 - `sessions`: primary key `id`; UTC and local session start, recorded UTC offset,
@@ -1003,14 +1037,10 @@ the complete response document in `payload_json`. Each table tracks its own
 sync cursor. Upserts use the document ID so multiple sleep periods on the same
 day are preserved. The sync command creates both tables in existing databases.
 
-Analysis fields:
+Analysis table (`analysis`, composite primary key `(year_month, source_table, metric)`):
 
-- `median_sleep_score`
-- `avg_sleep_score`
-- `median_readiness_score`
-- `avg_readiness_score`
-
-(Uses a normalized schema with `year_month`, `source_table`, `metric` as composite primary key, pivoted into these columns during publish/backfill.)
+- Stores `min_value`, `median_value`, `avg_value`, `max_value`, `sample_count`, and `updated_at` for 20 numeric metrics across `daily_sleep` (score + 7 contributors) and `daily_readiness` (score, 2 temperature deviations, + 9 contributors).
+- During publish and backfill, `src/oura/reporting.py` pivots the `score` rows into `median_sleep_score`, `avg_sleep_score`, `median_readiness_score`, and `avg_readiness_score`.
 
 #### Charles Schwab (`schwab.db`)
 
@@ -1057,7 +1087,11 @@ Analysis fields (`monthly_pnl` table, keyed by `(year_month, account_hash)`):
 | `closing_count` | Number of CLOSING (sell) legs |
 | `unique_symbols` | Distinct tickers traded this month |
 
-Run `uv run main.py schwab-analyze` to populate. `net_cash_flow` is a cash-flow approximation of realized P&L; true P&L would require a separate cost-basis ledger.
+Analysis table 2 (`monthly_account_snapshots`, keyed by `(year_month, account_hash)`):
+
+- Stores the latest `account_snapshots` row per account in each calendar month (`account_number`, `account_type`, `snapshot_at`), core balances (`liquidation_value`, `equity`, `cash_balance`, `buying_power`), and extended fields extracted from `current_balances_json` (`long_market_value`, `short_market_value`, `margin_balance`, `short_balance`, `long_margin_value`, `short_margin_value`, `maintenance_requirement`, `money_market_fund`, `total_cash`, `cash_available_for_trading`, `cash_available_for_withdrawal`), plus `updated_at`.
+
+Run `uv run main.py schwab-analyze` to populate both tables. `net_cash_flow` is a cash-flow approximation of realized P&L; true P&L would require a separate cost-basis ledger.
 
 ## Comparisons
 
@@ -1073,6 +1107,8 @@ Sources currently surfaced in the published report use comparisons for these met
 | Overcast | episodes played, minutes listened |
 | Strong | maximum set weight for each exercise in the latest workout |
 | Apple Health | workouts, total duration, total calories |
+| Surfilog | sessions, waves, water time, riding time, median/max wave duration, median/max wave speed, riding/paddling distance, longest wave |
+| Kaya | climbing days, sends |
 | Blog | posts, total words, unique tags |
 | Hardcover | books finished, average rating |
 | GitHub | public/private commits, repos touched, additions, and deletions, each compared independently |
@@ -1146,16 +1182,19 @@ Key config areas:
 | Area | Variables |
 |------|-----------|
 | Readwise | `READWISE_ACCESS_TOKEN` |
-| Foursquare | `FOURSQUARE_ACCESS_TOKEN`, `FOURSQUARE_CLIENT_ID`, `FOURSQUARE_CLIENT_SECRET`, `FOURSQUARE_API_KEY` |
+| Workflowy | `WORKFLOWY_API_KEY` |
+| Foursquare | `FOURSQUARE_ACCESS_TOKEN`, `FOURSQUARE_CLIENT_ID`, `FOURSQUARE_CLIENT_SECRET`, `FOURSQUARE_API_KEY`, `FOURSQUARE_REDIRECT_URI` |
 | Letterboxd | `LETTERBOXD_RSS_URL`, `TMDB_ACCESS_TOKEN`, `TMDB_API_KEY` |
 | Overcast | `OVERCAST_COOKIE`, `OVERCAST_EMAIL`, `OVERCAST_PASSWORD` |
+| Strong | `STRONG_USER`, `STRONG_PASS`, `STRONG_WEIGHT_UNIT`, `STRONG_TIMEZONE` |
 | Surfilog | `SURFILOG_EMAIL`, `SURFILOG_PASSWORD` |
+| Kaya | `KAYA_TIMEZONE` |
 | Blog tracking | `BLOG_POSTS_INDEX_URL` |
 | Hardcover | `HARDCOVER_ACCESS_TOKEN` |
 | GitHub activity | `CODEBASE_USERNAME`, `CODEBASE_GITHUB_TOKEN` (legacy fallback: `BLOG_GITHUB_TOKEN`) |
 | Oura Ring | `OURA_CLIENT_ID`, `OURA_CLIENT_SECRET`, `OURA_REDIRECT_URI`, `OURA_ACCESS_TOKEN`, `OURA_REFRESH_TOKEN` |
 | Charles Schwab | `SCHWAB_CLIENT_ID`, `SCHWAB_CLIENT_SECRET`, `SCHWAB_CALLBACK_URL`, `SCHWAB_ACCESS_TOKEN`, `SCHWAB_REFRESH_TOKEN` |
-| GitHub publishing | `DATA_REPO_GITHUB_TOKEN`, `DATA_REPO_OWNER`, `DATA_REPO_NAME`, `DATA_GITHUB_TARGET_BRANCH`, `DATA_REPO_POSTS_DIR`, `BLOG_GITHUB_TOKEN`, `BLOG_REPO_OWNER`, `BLOG_REPO_NAME`, `BLOG_GITHUB_TARGET_BRANCH` |
+| GitHub publishing | `DATA_REPO_GITHUB_TOKEN` (fallbacks: `DATA_REPO_PAT`, `BLOG_GITHUB_TOKEN`), `DATA_REPO_OWNER`, `DATA_REPO_NAME`, `DATA_GITHUB_TARGET_BRANCH`, `DATA_REPO_POSTS_DIR`, `BLOG_GITHUB_TOKEN`, `BLOG_REPO_OWNER`, `BLOG_REPO_NAME`, `BLOG_GITHUB_TARGET_BRANCH` |
 | Storage override | `DATA_REPO_LOCAL_PATH` |
 
 Optional publishing variables that have defaults treat blank strings as unset. This matters in GitHub Actions, where an absent secret can be passed through as an empty environment variable; blank `DATA_GITHUB_TARGET_BRANCH` and `BLOG_GITHUB_TARGET_BRANCH` values fall back to `main`.
@@ -1201,6 +1240,8 @@ Common Actions secrets include:
 - `OVERCAST_PASSWORD`
 - `SURFILOG_EMAIL`
 - `SURFILOG_PASSWORD`
+- `STRONG_USER`
+- `STRONG_PASS`
 - `HARDCOVER_ACCESS_TOKEN`
 - `CODEBASE_USERNAME`
 - `CODEBASE_GITHUB_TOKEN`
@@ -1212,17 +1253,26 @@ Common Actions secrets include:
 - `BLOG_REPO_OWNER`
 - `BLOG_REPO_NAME`
 - `BLOG_GITHUB_TARGET_BRANCH`
-- `TMDB_ACCESS_TOKEN` or `TMDB_API_KEY` if you want Letterboxd runtime enrichment in Actions too
+- `TMDB_ACCESS_TOKEN` (preferred) or `TMDB_API_KEY` for Letterboxd runtime enrichment in Actions
+
+Optional repository variables (`vars`) used by `monthly-pipeline.yml`:
+
+- `KAYA_TIMEZONE` (defaults to `America/Los_Angeles`)
+- `STRONG_WEIGHT_UNIT` (defaults to `lb`)
+- `STRONG_TIMEZONE` (defaults to `America/Los_Angeles`)
 
 ### Per-Source Job Isolation and Workflows
 
-Sources with sensitive credentials run in separate workflows or jobs so that a compromised dependency in one job cannot access another job's secrets.
+Sources with sensitive credentials or independent cadences run in separate workflows so each job receives only the secrets it needs and runs on its own schedule.
 
-Currently isolated:
+Standalone workflows alongside `monthly-pipeline.yml` and `tests.yml`:
 
-| Workflow/Job | Secrets | Schedule / Strategy |
+| Workflow | Secrets | Schedule / Strategy |
 |---|---|---|
-| `schwab` (workflow) | `SCHWAB_CLIENT_ID`, `SCHWAB_CLIENT_SECRET`, `SCHWAB_ACCESS_TOKEN`, `SCHWAB_REFRESH_TOKEN`, `SCHWAB_CALLBACK_URL` | Every 5 days (`schwab-sync.yml`) to maintain OAuth tokens within 7-day TTL |
+| `schwab-sync.yml` | Vault access + `SCHWAB_CLIENT_ID`, `SCHWAB_CLIENT_SECRET`, `SCHWAB_ACCESS_TOKEN`, `SCHWAB_REFRESH_TOKEN`, `SCHWAB_CALLBACK_URL` | Manual (`workflow_dispatch`, runs `schwab-analyze`; scheduled runs currently paused due to OAuth/token-refresh failures) |
+| `overcast-activity.yml` | Vault read access + `OVERCAST_COOKIE`, `OVERCAST_EMAIL`, `OVERCAST_PASSWORD` + Blog repo publishing | Daily at `08:25 UTC` (`overcast-publish-latest`) |
+| `apple-health-activity.yml` | Vault read access + Blog repo publishing | Daily at `08:45 UTC` (`apple-health-sync` then `apple-health-publish-latest`) |
+| `surfilog-strava-import.yml` | `SURFILOG_EMAIL`, `SURFILOG_PASSWORD` | Daily at `09:15 UTC` (`surfilog-import-strava`, optional `dry_run`/`since` manual inputs) |
 
 #### OAuth Token Persistence (Schwab & Oura)
 

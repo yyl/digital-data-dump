@@ -1,4 +1,9 @@
-from src.letterboxd.tmdb_client import TMDBClient
+from unittest.mock import MagicMock
+
+import pytest
+import requests
+
+from src.letterboxd.tmdb_client import TMDBAPIError, TMDBClient
 
 
 def test_tmdb_client_prefers_exact_title_and_year_match():
@@ -77,3 +82,86 @@ def test_tmdb_client_rejects_large_year_gap_even_on_fallback():
     match = client.get_runtime(title="The Blackening", year=2022)
 
     assert match is None
+
+
+def test_tmdb_client_fails_immediately_on_auth_error_without_leaking_credentials(monkeypatch):
+    session = MagicMock()
+    response = MagicMock(status_code=401)
+    session.get.return_value = response
+    sleep = MagicMock()
+    monkeypatch.setattr("src.letterboxd.tmdb_client.time.sleep", sleep)
+
+    client = TMDBClient(access_token="", api_key="super-secret-api-key", session=session)
+    client._rate_limit = lambda: None  # type: ignore[method-assign]
+
+    with pytest.raises(TMDBAPIError, match="HTTP 401") as exc_info:
+        client.get_runtime(title="Source Code", year=2011)
+
+    assert "super-secret-api-key" not in str(exc_info.value)
+    assert session.get.call_count == 1
+    sleep.assert_not_called()
+
+
+def test_tmdb_client_retries_transient_errors_then_raises(monkeypatch):
+    session = MagicMock()
+    session.get.side_effect = requests.exceptions.Timeout("timeout?api_key=secret-key")
+    sleep = MagicMock()
+    monkeypatch.setattr("src.letterboxd.tmdb_client.time.sleep", sleep)
+
+    client = TMDBClient(access_token="", api_key="secret-key", session=session)
+    client._rate_limit = lambda: None  # type: ignore[method-assign]
+
+    with pytest.raises(TMDBAPIError, match="timed out") as exc_info:
+        client.get_runtime(title="Source Code", year=2011)
+
+    assert "secret-key" not in str(exc_info.value)
+    assert exc_info.value.__cause__ is None
+    assert session.get.call_count == client.MAX_RETRIES
+    assert sleep.call_count == client.MAX_RETRIES - 1
+
+
+def test_tmdb_client_retries_server_and_rate_limit_errors_then_raises(monkeypatch):
+    session = MagicMock()
+    session.get.return_value = MagicMock(status_code=429)
+    sleep = MagicMock()
+    monkeypatch.setattr("src.letterboxd.tmdb_client.time.sleep", sleep)
+
+    client = TMDBClient(access_token="secret-token", api_key="", session=session)
+    client._rate_limit = lambda: None  # type: ignore[method-assign]
+
+    with pytest.raises(TMDBAPIError, match="HTTP 429") as exc_info:
+        client.get_runtime(title="Source Code", year=2011)
+
+    assert "secret-token" not in str(exc_info.value)
+    assert session.get.call_count == client.MAX_RETRIES
+
+
+def test_tmdb_client_treats_404_on_movie_details_as_miss_but_fails_on_search_404():
+    session = MagicMock()
+    session.get.return_value = MagicMock(status_code=404)
+    client = TMDBClient(access_token="token", api_key="", session=session)
+    client._rate_limit = lambda: None  # type: ignore[method-assign]
+
+    assert client.get_runtime(title="Missing Film", year=2020, tmdb_id=999999) is None
+
+    with pytest.raises(TMDBAPIError, match="HTTP 404"):
+        client.get_runtime(title="Missing Film", year=2020)
+
+
+def test_tmdb_client_raises_on_invalid_json():
+    session = MagicMock()
+    response = MagicMock(status_code=200)
+    response.json.side_effect = ValueError("bad json")
+    session.get.return_value = response
+    client = TMDBClient(access_token="token", api_key="", session=session)
+    client._rate_limit = lambda: None  # type: ignore[method-assign]
+
+    with pytest.raises(TMDBAPIError, match="invalid JSON"):
+        client.get_runtime(title="Source Code", year=2011)
+
+
+def test_tmdb_client_unconfigured_request_raises():
+    client = TMDBClient(access_token="", api_key="")
+
+    with pytest.raises(TMDBAPIError, match="not configured"):
+        client.get_runtime(title="Source Code", year=2011)

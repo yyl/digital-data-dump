@@ -323,6 +323,20 @@ In `bouldering.yaml`, `grade_counts` maps grades to send counts. An empty grade
 key counts ungraded sends. When available, `hardest_v_grade` holds the numeric
 part of the highest V grade sent, such as `4` for V4.
 
+## Latest Podcast Card
+
+The blog homepage reads `data/activity/latest_podcast.json`, refreshed daily by
+`overcast-publish-latest`. The snapshot contains:
+
+- `title`: played episode title
+- `url`: `https://overcast.fm/+...` episode link, or an empty string if the
+  stored URL does not match that pattern
+- `detail`: podcast show title
+- `date`: played timestamp normalized to UTC ISO 8601
+
+The snapshot is updated only when a newer or changed played episode is found;
+it never overwrites a newer episode already committed to the blog.
+
 ## Latest Workout Card
 
 The blog homepage reads `data/activity/latest_workout.json`. The snapshot

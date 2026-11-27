@@ -20,7 +20,7 @@ Set `DATA_REPO_LOCAL_PATH` to override the storage root; otherwise the sibling
 | Overcast | Feeds added/removed, episodes marked played, and estimated listening minutes from available episode durations |
 | Strong | Workouts, total minutes, unique exercises, and sets |
 | Apple Health | Workouts excluding walks, total duration, and total calories |
-| Surfilog | Surf sessions, waves caught, water/riding time, riding/paddling distance, maximum speed, and longest wave |
+| Surfilog | Surf sessions, waves caught, water/riding time, median/maximum wave duration, median wave top speed, riding/paddling distance, maximum speed, and longest wave |
 | Kaya | Bouldering days, sends, recorded attempts, flashes, onsights, and send grades |
 | Blog | Published posts, total words, and unique tags |
 | Hardcover | Books finished and average rating |
@@ -112,19 +112,17 @@ Tracks watched movies and ratings.
 - `letterboxd-sync`
 - `letterboxd-analyze`
 
-**Required in `.env`**
-- None
+**Required in `.env` for runtime enrichment**
+- `TMDB_ACCESS_TOKEN` (preferred) or `TMDB_API_KEY` (required whenever watched movies are missing runtimes)
 
 **Optional in `.env`**
 - `LETTERBOXD_RSS_URL`
-- `TMDB_ACCESS_TOKEN`
-- `TMDB_API_KEY`
 
 `LETTERBOXD_RSS_URL` defaults to the configured user feed in `src/config.py`. Override it when running this project for a different Letterboxd account.
 
 `letterboxd-sync` can seed history from a Letterboxd export folder in `<storage-root>/files/` when the database is empty, then continue with RSS updates. RSS entries are normalized from user-specific film URLs to canonical film URLs and deduplicated against CSV history by movie name and watched date.
 
-If TMDB credentials are configured, `letterboxd-sync` also backfills movie runtimes. TMDB access-token auth is preferred when both token and API key are present. The runtime enrichment uses TMDB IDs from CSV/RSS when available, otherwise it falls back to conservative title/year matching. Monthly analysis uses available runtimes to populate `minutes_watched` for `movies.yaml`.
+After CSV/RSS ingestion, `letterboxd-sync` enriches missing movie runtimes via TMDB (`TMDB_ACCESS_TOKEN` is preferred when both token and API key are present). The enrichment uses TMDB IDs from CSV/RSS when available, otherwise it falls back to conservative title/year matching. If any watched movies still lack runtimes and TMDB credentials are missing—or if TMDB returns an auth, HTTP, or network error—sync fails visibly rather than silently skipping enrichment. Unmatched titles remain non-fatal and are printed in the summary. Monthly analysis uses available runtimes to populate `minutes_watched` for `movies.yaml`. For GitHub Actions, set `TMDB_ACCESS_TOKEN` (or `TMDB_API_KEY`) as a repository secret so the monthly pipeline enriches new movies.
 
 **Optional historical export setup**
 1. Export your Letterboxd data from [letterboxd.com/settings/data](https://letterboxd.com/settings/data/)
@@ -227,6 +225,7 @@ separate XML import supports individual heart and breathing samples.
 **Commands**
 - `apple-health-sync`
 - `apple-health-analyze`
+- `apple-health-publish-latest`
 - `apple-health-import-heart-breathing [xml_path]`
 
 **Required in `.env`**
@@ -322,6 +321,18 @@ Strava import uses Strava's GPS streams, so Strava's Privacy Zone setting trims
 tracks near your home address if enabled.
 
 ## Kaya
+
+Tracks bouldering sessions, sends, recorded attempts, and send grades from Kaya CSV exports.
+
+**Commands**
+- `kaya-sync [csv_path]`
+- `kaya-analyze [csv_path]`
+
+**Required in `.env`**
+- None
+
+**Optional in `.env`**
+- `KAYA_TIMEZONE` (defaults to `America/Los_Angeles`)
 
 Place a Kaya CSV export in `<storage-root>/files/` with its original
 `KAYA-Export-<timestamp>.csv` name, then run `uv run main.py kaya-analyze`.

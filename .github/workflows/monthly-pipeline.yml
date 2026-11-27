@@ -94,6 +94,8 @@ jobs:
           READWISE_ACCESS_TOKEN: ${{ secrets.READWISE_ACCESS_TOKEN }}
           FOURSQUARE_ACCESS_TOKEN: ${{ secrets.FOURSQUARE_ACCESS_TOKEN }}
           FOURSQUARE_API_KEY: ${{ secrets.FOURSQUARE_API_KEY }}
+          TMDB_ACCESS_TOKEN: ${{ secrets.TMDB_ACCESS_TOKEN }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           OVERCAST_COOKIE: ${{ secrets.OVERCAST_COOKIE }}
           OVERCAST_EMAIL: ${{ secrets.OVERCAST_EMAIL }}
           OVERCAST_PASSWORD: ${{ secrets.OVERCAST_PASSWORD }}

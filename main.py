@@ -191,6 +191,23 @@ def _status_export(path):
     return {"latest_export": path.name} if path is not None else {}
 
 
+def _status_letterboxd(conn):
+    from src.letterboxd.importer import LetterboxdImporter
+
+    result = {
+        **_status_export(LetterboxdImporter.find_latest_export()),
+        "has_tmdb_token": bool(Config.TMDB_ACCESS_TOKEN or Config.TMDB_API_KEY),
+    }
+    if conn is not None:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(watched)")}
+        if "runtime_minutes" in columns:
+            result.update(_status_row(
+                conn,
+                "SELECT COUNT(*) AS missing_runtime FROM watched WHERE runtime_minutes IS NULL OR runtime_minutes <= 0",
+            ))
+    return result
+
+
 def _status_apple_health(conn):
     from src.apple_health.importer import AppleHealthImporter
 
@@ -243,7 +260,6 @@ def source_catalog() -> tuple[Source, ...]:
     from src.kaya.database import KayaDatabase
     from src.letterboxd.analytics import LetterboxdAnalytics
     from src.letterboxd.database import LetterboxdDatabase
-    from src.letterboxd.importer import LetterboxdImporter
     from src.oura.analytics import OuraAnalytics
     from src.oura.database import OuraDatabase
     from src.overcast.analytics import OvercastAnalytics
@@ -269,7 +285,7 @@ def source_catalog() -> tuple[Source, ...]:
                status_details=lambda _: {"has_token": bool(Config.FOURSQUARE_ACCESS_TOKEN)}),
         Source("letterboxd", "Letterboxd", LetterboxdDatabase, cmd_letterboxd_sync,
                lambda db: LetterboxdAnalytics(db).analyze_watched(),
-               status_details=lambda _: _status_export(LetterboxdImporter.find_latest_export())),
+               status_details=_status_letterboxd),
         Source("overcast", "Overcast", OvercastDatabase, cmd_overcast_sync,
                lambda db: OvercastAnalytics(db).analyze_podcasts(), initialize=False,
                status_details=lambda _: _status_export(OvercastImporter.find_latest_export())),
